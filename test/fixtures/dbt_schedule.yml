@@ -1,0 +1,41 @@
+schemas:
+  base:
+    materialized: false
+    selectors:
+      - foo/bar
+      - foo/baz
+  mid:
+    materialized: true
+    schedule:
+      cron: 0 */2 * * *
+    selectors:
+      - foo/foo
+    depends_on:
+      - base
+  upper_a:
+    materialized: true
+    schedule:
+      cron: 0 0,12 * * *
+    selectors:
+      - foobar
+    depends_on:
+      - base
+      - mid
+  upper_b:
+    materialized: true
+    schedule:
+      cron: 0 */4 * * *
+    selectors:
+      - foobuz
+    depends_on:
+      - base
+      - mid
+  top:
+    materialized: false
+    selectors:
+      - foo/buzz
+    depends_on:
+      - base
+      - mid
+      - upper_a
+      - upper_b
