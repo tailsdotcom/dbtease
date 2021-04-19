@@ -1,19 +1,28 @@
 """Define the schema object."""
 
+import os.path
+
 
 class DbtSchema:
     def __init__(
-        self, name, selectors, schedule=None,
+        self, name, paths, schedule=None,
         depends_on=None, materialized=False
     ):
         self.name = name
-        self.selectors = selectors
+        self.paths = paths
         self.schedule = schedule
         self.depends_on = depends_on
         self.materialized = materialized
 
     def __repr__(self):
         return f"<DbtSchema: {self.name}>"
+
+    def matches_paths(self, paths):
+        self_paths = [os.path.realpath(path) for path in self.paths]
+        matched_paths = set()
+        for self_path in self_paths:
+            matched_paths |= set(path for path in paths if os.path.realpath(path).startswith(self_path))
+        return matched_paths
 
     @classmethod
     def from_dict(cls, name, config):

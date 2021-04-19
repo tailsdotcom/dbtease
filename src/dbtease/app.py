@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from dbtease.git import get_git_state
 from dbtease.repository import JsonStateRepository
+from dbtease.schedule import DbtSchedule
 
 
 @click.group()
@@ -74,13 +75,19 @@ def hello(count, name):
 @cli.command()
 def status():
     """Get the current status of deployment."""
+    # Load state
     deploy_state_repo = JsonStateRepository()
     deployed_hash = deploy_state_repo.get_current_deployed()
     click.echo(repr(deployed_hash))
+    # Introspect git status
     git_status = get_git_state(deployed_hash=deployed_hash)
     click.echo(repr(git_status))
-
-
+    # Load the schedule
+    schedule = DbtSchedule.from_path(".")
+    click.echo(schedule.graph.nodes)
+    for s in schedule.iter_affected_schemas(paths=git_status["diff"] | git_status["untracked"]):
+        click.echo(repr(s))
+        # Should work out how to deal with the remainder explicitly.
 
 if __name__ == '__main__':
     cli()

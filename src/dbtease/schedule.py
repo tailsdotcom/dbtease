@@ -13,6 +13,16 @@ class DbtSchedule:
     def __init__(self, name, graph):
         self.name = name
         self.graph = graph
+    
+    def iter_schemas(self):
+        for node_name in self.graph.nodes:
+            yield node_name, self.graph.nodes[node_name]["schema"]
+
+    def iter_affected_schemas(self, paths):
+        for _, schema in self.iter_schemas():
+            matched_paths = schema.matches_paths(paths)
+            if matched_paths:
+                yield schema, matched_paths
 
     @classmethod
     def from_dict(cls, config):
