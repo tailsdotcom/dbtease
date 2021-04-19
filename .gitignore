@@ -1,3 +1,5 @@
-Pipfile.lock
 *.egg-info
 .pytest_cache
+
+/state.json
+/Pipfile.lock

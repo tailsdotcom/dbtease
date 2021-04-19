@@ -4,6 +4,9 @@ import yaml
 
 from collections import defaultdict
 
+from dbtease.git import get_git_state
+from dbtease.repository import JsonStateRepository
+
 
 @click.group()
 def cli():
@@ -66,6 +69,17 @@ def hello(count, name):
     """Simple program that greets NAME for a total of COUNT times."""
     for x in range(count):
         click.echo('Hello %s!' % name)
+
+
+@cli.command()
+def status():
+    """Get the current status of deployment."""
+    deploy_state_repo = JsonStateRepository()
+    deployed_hash = deploy_state_repo.get_current_deployed()
+    click.echo(repr(deployed_hash))
+    git_status = get_git_state(deployed_hash=deployed_hash)
+    click.echo(repr(git_status))
+
 
 
 if __name__ == '__main__':

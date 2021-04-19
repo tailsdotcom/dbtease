@@ -9,6 +9,7 @@ pyyaml = "*"
 crontab = "*"
 networkx = "*"
 dbtease = {editable = true, path = "."}
+gitpython = "*"
 
 [dev-packages]
 pytest = "*"
