@@ -34,6 +34,7 @@ Config is managed using a yaml file in the dbt project.
   - if it's in a low level view schema then we do a full deploy
   - if it's in a matrialised schema, we deploy that schema _and it's dependents_ - including any view schemas if appropriate.
   - if it's a config change and not a model then it deploys immediately,
+- We *ONLY* store the manifest for the most recent commit.
 
 ## Roadmap
 
