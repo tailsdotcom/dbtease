@@ -7,8 +7,8 @@ name = "pypi"
 click = "*"
 pyyaml = "*"
 crontab = "*"
-bernie = {editable = true, path = "."}
 networkx = "*"
+dbtease = {editable = true, path = "."}
 
 [dev-packages]
 pytest = "*"

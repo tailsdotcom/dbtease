@@ -1,3 +1,5 @@
+deployment: foo_prod
+
 schemas:
   base:
     materialized: false

@@ -28,7 +28,11 @@ def iter_schemas(models, path=None):
                     materialized = val[sub_key]
             if schema:
                 if not materialized:
-                    print("Default materialisation not set for path {0}.".format(new_path))
+                    print(
+                        "Default materialisation not set for path {0}.".format(
+                            new_path
+                        )
+                    )
                 else:
                     yield (val[sub_key], new_path, materialized)
             yield from iter_schemas(val, path=new_path)
@@ -53,7 +57,6 @@ def check(dbt_dir):
     click.echo(schemas)
     click.echo(combine_schemas(dbt_project['models']))
 
-    
 
 @cli.command()
 @click.option('--count', default=1, help='Number of greetings.')
@@ -63,6 +66,7 @@ def hello(count, name):
     """Simple program that greets NAME for a total of COUNT times."""
     for x in range(count):
         click.echo('Hello %s!' % name)
+
 
 if __name__ == '__main__':
     cli()

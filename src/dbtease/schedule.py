@@ -4,13 +4,14 @@ import yaml
 import os.path
 import networkx as nx
 
-from bernie.schema import DbtSchema
+from dbtease.schema import DbtSchema
 
 
 class DbtSchedule:
     """A schedule for dbt."""
 
-    def __init__(self, graph):
+    def __init__(self, name, graph):
+        self.name = name
         self.graph = graph
 
     @classmethod
@@ -21,8 +22,10 @@ class DbtSchedule:
             schema = DbtSchema.from_dict(name=name, config=schema_config)
             dag.add_node(name, schema=schema)
             if "depends_on" in schema_config:
-                dag.add_edges_from([(s, name) for s in schema_config["depends_on"]])
-        return cls(graph=dag)
+                dag.add_edges_from([
+                    (s, name) for s in schema_config["depends_on"]
+                ])
+        return cls(name=config["deployment"], graph=dag)
 
     @classmethod
     def from_file(cls, fname):
@@ -30,7 +33,7 @@ class DbtSchedule:
         with open(fname) as schedule_file:
             config_dict = yaml.safe_load(schedule_file.read())
         return cls.from_dict(config_dict)
-    
+
     @classmethod
     def from_path(cls, path, fname="dbt_schedule.yml"):
         """Load a schedule from a path."""

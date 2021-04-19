@@ -1,15 +1,14 @@
 """Test the schedule module."""
 
-from bernie.schedule import DbtSchedule
+from dbtease.schedule import DbtSchedule
+
 
 def test_load_basic():
     schedule = DbtSchedule.from_path("test/fixtures")
-    print(schedule)
-    print(config)
-    print(schedule.graph)
-    print(schedule.graph.nodes)
-    print(schedule.graph.edges)
-    assert schedule.graph.edges == [
+    # Make sure we've got the right name
+    assert schedule.name == "foo_prod"
+    # Make sure we've got the edges we expect.
+    assert set(schedule.graph.edges) == {
         ('base', 'mid'),
         ('base', 'upper_a'),
         ('base', 'upper_b'),
@@ -18,6 +17,5 @@ def test_load_basic():
         ('mid', 'upper_b'),
         ('mid', 'top'),
         ('upper_a', 'top'),
-        ('upper_b', 'top')
-    ]
-    assert False
+        ('upper_b', 'top'),
+    }
