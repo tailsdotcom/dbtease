@@ -28,6 +28,12 @@ Config is managed using a yaml file in the dbt project.
 - docs are generated on `deploy`.
 - `snapshot` is assumed to run at the end of any dag, on a configurable timeschemdule.
 - initially `dbt` is called as a shell function, eventually we might integrate with the python api.
+- `dbttease` integrates with Git to identify which files have been changed in the repository since the last
+  deployed "live" version and runs tests and deploys accordingly. Importantly:
+  - if it's in a top level view schema then it's deployed immediately.
+  - if it's in a low level view schema then we do a full deploy
+  - if it's in a matrialised schema, we deploy that schema _and it's dependents_ - including any view schemas if appropriate.
+  - if it's a config change and not a model then it deploys immediately,
 
 ## Roadmap
 
@@ -37,3 +43,5 @@ Config is managed using a yaml file in the dbt project.
 
 - cli should expose `deploy` and `refresh`.
   - `refresh` may run a full deploy if it deems fit.
+- cli should expose `plan` (or maybe `--plan` as an option to the two above.)
+  - This works like `terraform plan` to work out what steps *would be taken based on current state.
