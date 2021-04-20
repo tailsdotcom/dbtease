@@ -85,9 +85,14 @@ def status():
     # Load the schedule
     schedule = DbtSchedule.from_path(".")
     click.echo(schedule.graph.nodes)
-    for s in schedule.iter_affected_schemas(paths=git_status["diff"] | git_status["untracked"]):
-        click.echo(repr(s))
+    changed_files = git_status["diff"] | git_status["untracked"]
+    matched_files = set()
+    for schema, files in schedule.iter_affected_schemas(paths=changed_files):
+        click.echo(repr(schema))
+        matched_files |= files
+        click.echo(repr(files))
         # Should work out how to deal with the remainder explicitly.
+    click.echo("Unmatched files: {}".format(repr(changed_files - matched_files)))
 
 if __name__ == '__main__':
     cli()
