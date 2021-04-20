@@ -76,29 +76,29 @@ def hello(count, name):
 @cli.command()
 def status():
     """Get the current status of deployment."""
-    # Load state
-    deploy_state_repo = JsonStateRepository()
-    deployed_hash = deploy_state_repo.get_current_deployed()
-    click.echo(repr(deployed_hash))
-    # Introspect git status
-    git_status = get_git_state(deployed_hash=deployed_hash)
-    click.echo(repr(git_status))
     # Load the schedule
     schedule = DbtSchedule.from_path(".")
-    click.echo(schedule.graph.nodes)
-    changed_files = git_status["diff"] | git_status["untracked"]
-    schema_files, unmatched_files = schedule.match_changed_files(changed_files)
-    click.echo("Unmatched: {0}".format(unmatched_files))
-    click.echo("Matched: {0}".format(schema_files))
-    changed_schemas = {*schema_files.keys()}
-    click.echo("Changed: {0}".format(changed_schemas))
-    deploy_schemas = schedule.get_dependent_schemas(*changed_schemas)
-    # Filter only to materialized schemas
-    materialized_schema = schedule.materialized_schemas()
-    click.echo("Materialised schemas: {0}".format(materialized_schema))
-    deploy_schemas &= materialized_schema
-    click.echo("Dependent Deploy: {0}".format(deploy_schemas))
-    click.echo("Changed Deploy: {0}".format(changed_schemas))
+    status_dict = schedule.status_dict()
+    # Output the status.
+    click.echo("=== dbtease status ===")
+    config_pairs = [
+        ("Deployed Hash", status_dict["deployed_hash"]),
+        ("Current Hash", status_dict["current_hash"]),
+        ("Uncommitted Changes", status_dict["dirty_tree"]),
+        ("Deployment Plan", ", ".join(status_dict["deploy_order"])),
+    ]
+    for label, value in config_pairs:
+        click.echo(f"{label:22} - {value}")
+    # Output Files affected
+    if status_dict["unmatched_files"]:
+        click.echo("== non-project file changes ==")
+        for fname in status_dict["unmatched_files"]:
+            click.echo(f"- {fname}")
+    for schema_name in status_dict["matched_files"]:
+        click.echo(f"== schema: {schema_name} ==")
+        for fname in status_dict["matched_files"][schema_name]:
+            click.echo(f"- {fname}")  
+
     # If we're in test, surely we're just testing the modified ones (using state:modified)?
     # (but we do a test full and a test incremental)
 
