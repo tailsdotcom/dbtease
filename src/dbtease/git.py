@@ -13,7 +13,7 @@ def _iter_diff_paths(diffs):
 
 def get_git_state(repo_dir=".", deployed_hash=None):
     repo = Repo(repo_dir)
-    diff_paths = {}
+    diff_paths = set()
     if deployed_hash:
         deployed_commit = repo.commit(deployed_hash)
         diff_paths = set(_iter_diff_paths(deployed_commit.diff(None)))
