@@ -32,7 +32,8 @@ class JsonStateRepository(DictStateRepository):
             return {}
 
     def _save_state(self, state):
-        return json.dump(state, self._fname)
+        with open(self._fname, "w") as state_file:
+            return json.dump(state, state_file)
 
     def get_current_deployed(self):
         """Get the details of the currently deployed state."""

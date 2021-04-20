@@ -114,7 +114,7 @@ def deploy(force_backend_update):
         schedule.state_repository.set_current_deployed(
             commit_hash=current_hash
         )
-        click.echo(click.style('SUCCESS', fg='green'))
+        click.secho('SUCCESS', fg='green')
         return
 
     raise NotImplementedError("dbtease deploy is not implemented yet.")
