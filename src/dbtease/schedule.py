@@ -24,6 +24,15 @@ class DbtSchedule:
             if matched_paths:
                 yield schema, matched_paths
 
+    def match_changed_files(self, changed_files):
+        matched_files = set()
+        schema_files = {}
+        for schema, files in self.iter_affected_schemas(paths=changed_files):
+            matched_files |= files
+            schema_files[schema.name] = files
+        unmatched_files = changed_files - matched_files
+        return schema_files, unmatched_files
+
     @classmethod
     def from_dict(cls, config):
         """Load a schedule from a dict."""

@@ -10,6 +10,7 @@ from dbtease.schedule import DbtSchedule
 
 
 @click.group()
+@click.version_option()
 def cli():
     pass
 
@@ -86,13 +87,10 @@ def status():
     schedule = DbtSchedule.from_path(".")
     click.echo(schedule.graph.nodes)
     changed_files = git_status["diff"] | git_status["untracked"]
-    matched_files = set()
-    for schema, files in schedule.iter_affected_schemas(paths=changed_files):
-        click.echo(repr(schema))
-        matched_files |= files
-        click.echo(repr(files))
-        # Should work out how to deal with the remainder explicitly.
-    click.echo("Unmatched files: {}".format(repr(changed_files - matched_files)))
+    schema_files, unmatched_files = schedule.match_changed_files(changed_files)
+    click.echo("Unmatched: {0}".format(unmatched_files))
+    click.echo("Matched: {0}".format(schema_files))
+
 
 if __name__ == '__main__':
     cli()
