@@ -26,6 +26,10 @@
   - if it's a config change and not a model then it deploys immediately,
 - We *ONLY* store the manifest for the most recent commit.
 
+- If we're in test, surely we're just testing the modified ones (using state:modified)? (but we do a test full and a test incremental)
+- Deploy schemas are any materialised schemas and any schemas changed.
+- For each of these, we clone (optionally? if materialised), run, test, deploy.
+
 ## Roadmap
 
 - initially all schema (node) details are configured directly (and not introspected). Eventually this should probably introspected.
