@@ -54,6 +54,31 @@ def test():
             "No changes made compared to deployed version. "
             "To build regardless, call `dbt run` directly."
         )
+
+    if not deployed_hash:
+        click.secho(
+            (
+                "WARNING: No currently deployed hash, this will mean "
+                "a full test build. In a large project this "
+                "may take some time..."
+            ),
+            fg='yellow'
+        )
+        defer_to_state = False
+    else:
+        defer_to_state = True
+    
+    # Always use --fail-fast
+    plan = [
+        "acquire lock on build database",
+        "seed", # use state:modified if we can.
+        "snapshot",  # currently this is at the start - is that a good thing?
+        "run --full-refresh",  # use state:modified+ if we can.
+        "test", # use state:modified+ if we can.
+        "run incremental", # use state:modified+ if we can.
+        "test",  # yes again. (use state:modified+ if we can)
+    ]
+
     raise NotImplementedError("dbtease test is not implemented yet.")
 
 
@@ -76,6 +101,24 @@ def refresh():
             "Uncommitted Git changes. Please "
             "stash or discard changes to run refresh."
         )
+    
+    # Always use --fail-fast
+    plan = [
+        "snapshot",  # currently this is at the start - is that a good thing?
+        # maybe only on some schedules? I'm assuming this is not schema specific.
+        "for each schema in turn..." ,
+        [
+            "acquire lock on build database",
+            "clone live schema", # if it's materialised, otherwise we start blank
+            "run incremental",  # with defer AND with selectors for just this schema.
+            "test", # with defer and with selectors for just this schema.
+            "perms", # or do we ignore this for now?
+            "acquire lock on deploy database",
+            "deploy", # schema with swap.
+            "release lock on both databases"
+        ]
+    ]
+
     raise NotImplementedError("dbtease refresh is not implemented yet.")
 
 
@@ -116,6 +159,39 @@ def deploy(force_backend_update):
         )
         click.secho('SUCCESS', fg='green')
         return
+
+    if not deployed_hash:
+        click.secho(
+            (
+                "WARNING: No currently deployed hash, this will mean "
+                "a full test and deploy cycle. In a large project this "
+                "may take some time..."
+            ),
+            fg='yellow'
+        )
+        defer_to_state = False
+    else:
+        defer_to_state = True
+
+    # WE NEED TO WORK OUT HOW TO HANDLE SEEDS!
+    
+    # Always use --fail-fast
+    plan = [
+        "acquire lock on build database",
+        "seed", # use state:modified if we can.
+        "snapshot",  # currently this is at the start - is that a good thing?
+        "run --full-refresh",  # use state:modified+ if we can.
+        "test", # use state:modified+ if we can.
+        "run incremental", # use state:modified+ if we can.
+        "test",  # yes again. (use state:modified+ if we can)
+        "docs",
+        "perms",
+        "acquire lock on deploy database",
+        "deploy",  # as in swap database
+        "release lock on both databases",
+        "deploy",  # as in update terraform? {or is that seperate}
+        "upload artifacts." # (inluding docs)
+    ]
 
     raise NotImplementedError("dbtease deploy is not implemented yet.")
 
