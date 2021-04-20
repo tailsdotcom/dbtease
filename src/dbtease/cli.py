@@ -4,8 +4,6 @@ import yaml
 
 from collections import defaultdict
 
-from dbtease.git import get_git_state
-from dbtease.repository import JsonStateRepository
 from dbtease.schedule import DbtSchedule
 
 
@@ -97,13 +95,15 @@ def status():
     for schema_name in status_dict["matched_files"]:
         click.echo(f"== schema: {schema_name} ==")
         for fname in status_dict["matched_files"][schema_name]:
-            click.echo(f"- {fname}")  
+            click.echo(f"- {fname}")
 
-    # If we're in test, surely we're just testing the modified ones (using state:modified)?
+    # If we're in test, surely we're just testing the
+    # modified ones (using state:modified)?
     # (but we do a test full and a test incremental)
 
     # Deploy schemas are any materialised schemas and any schemas changed.
-    # For each of these, we clone (optionally? if materialised), run, test, deploy.
+    # For each of these, we clone (optionally? if materialised),
+    # run, test, deploy.
 
 
 if __name__ == '__main__':

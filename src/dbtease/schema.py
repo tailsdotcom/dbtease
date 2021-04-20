@@ -21,7 +21,10 @@ class DbtSchema:
         self_paths = [os.path.realpath(path) for path in self.paths]
         matched_paths = set()
         for self_path in self_paths:
-            matched_paths |= set(path for path in paths if os.path.realpath(path).startswith(self_path))
+            matched_paths |= set(
+                path for path in paths
+                if os.path.realpath(path).startswith(self_path)
+            )
         return matched_paths
 
     @classmethod

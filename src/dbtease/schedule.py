@@ -20,7 +20,7 @@ class DbtSchedule:
         self.name = name
         self.graph = graph
         self.state_repository = state_repository
-    
+
     def iter_schemas(self):
         for node_name in self.graph.nodes:
             yield node_name, self.graph.nodes[node_name]["schema"]
@@ -48,7 +48,7 @@ class DbtSchedule:
                 changed_schema
             )
         return dependent_schemas
-    
+
     def materialized_schemas(self):
         return set(
             name for name, schema in self.iter_schemas()
@@ -57,10 +57,15 @@ class DbtSchedule:
 
     def _plan_from_changed_files(self, changed_files):
         """Generate a plan of attack from changed files."""
-        schema_files, unmatched_files = self._match_changed_files(changed_files)
+        schema_files, unmatched_files = self._match_changed_files(
+            changed_files
+        )
         changed_schemas = {*schema_files.keys()}
         # Filter only to materialized schemas using set operators
-        deploy_schemas = self._get_dependent_schemas(*changed_schemas) & self.materialized_schemas()
+        deploy_schemas = (
+            self._get_dependent_schemas(*changed_schemas)
+            & self.materialized_schemas()
+        )
         # Lastly, for the changed and dependent schemas, we need to
         # identify an appropriate order of operations.
         # We do this by iterating a sorted generator on the graph.
@@ -78,7 +83,7 @@ class DbtSchedule:
             "dependent_deploy_schemas": deploy_schemas,
             "deploy_order": deploy_order
         }
-    
+
     def status_dict(self):
         """Determine the current status of the repository."""
         # Load state
@@ -120,7 +125,11 @@ class DbtSchedule:
             state_repository = {
                 "json": JsonStateRepository
             }[engine](**config["state"])
-        return cls(name=config["deployment"], graph=dag, state_repository=state_repository)
+        return cls(
+            name=config["deployment"],
+            graph=dag,
+            state_repository=state_repository
+        )
 
     @classmethod
     def from_file(cls, fname):

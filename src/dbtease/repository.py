@@ -12,7 +12,7 @@ class DictStateRepository:
     def get_current_deployed(self):
         """Get the details of the currently deployed state."""
         return self._state.get("current_deployed", None)
-    
+
     def set_current_deployed(self, commit_hash):
         """Sets the details of the currently deployed state."""
         self._state["currently_deployed"] = commit_hash
@@ -23,22 +23,22 @@ class JsonStateRepository(DictStateRepository):
 
     def __init__(self, fname="state.json"):
         self._fname = fname
-    
+
     def _load_state(self):
         try:
             with open(self._fname) as state_file:
                 return json.load(state_file)
         except FileNotFoundError:
             return {}
-    
+
     def _save_state(self, state):
         return json.dump(state, self._fname)
-    
+
     def get_current_deployed(self):
         """Get the details of the currently deployed state."""
         state = self._load_state()
         return state.get("current_deployed", None)
-    
+
     def set_current_deployed(self, commit_hash):
         """Sets the details of the currently deployed state."""
         state = self._load_state()
