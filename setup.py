@@ -86,7 +86,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "dbtease = dbtease.app:cli",
+            "dbtease = dbtease.cli:cli",
         ],
     },
 )
