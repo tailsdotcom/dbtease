@@ -83,6 +83,8 @@ setup(
         "pyyaml",
         "crontab",
         "networkx",
+        "gitpython",
+        "colorama ; platform_system==\"Windows\"",
     ],
     entry_points={
         "console_scripts": [

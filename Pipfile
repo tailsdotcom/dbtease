@@ -10,6 +10,7 @@ crontab = "*"
 networkx = "*"
 dbtease = {editable = true, path = "."}
 gitpython = "*"
+colorama = {version = "*", sys_platform = "== 'win32'"}
 
 [dev-packages]
 pytest = "*"
