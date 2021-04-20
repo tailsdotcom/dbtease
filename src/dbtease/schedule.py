@@ -7,6 +7,10 @@ import networkx as nx
 from dbtease.schema import DbtSchema
 
 
+class NotDagException(ValueError):
+    pass
+
+
 class DbtSchedule:
     """A schedule for dbt."""
 
@@ -33,6 +37,21 @@ class DbtSchedule:
         unmatched_files = changed_files - matched_files
         return schema_files, unmatched_files
 
+    def get_dependent_schemas(self, *changed_schemas):
+        dependent_schemas = set()
+        for changed_schema in changed_schemas:
+            dependent_schemas |= nx.algorithms.dag.descendants(
+                self.graph,
+                changed_schema
+            )
+        return dependent_schemas
+    
+    def materialized_schemas(self):
+        return set(
+            name for name, schema in self.iter_schemas()
+            if schema.materialized
+        )
+
     @classmethod
     def from_dict(cls, config):
         """Load a schedule from a dict."""
@@ -44,6 +63,8 @@ class DbtSchedule:
                 dag.add_edges_from([
                     (s, name) for s in schema_config["depends_on"]
                 ])
+        if not nx.algorithms.dag.is_directed_acyclic_graph(dag):
+            raise NotDagException("Not a DAG!")
         return cls(name=config["deployment"], graph=dag)
 
     @classmethod

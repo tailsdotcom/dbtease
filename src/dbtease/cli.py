@@ -90,6 +90,20 @@ def status():
     schema_files, unmatched_files = schedule.match_changed_files(changed_files)
     click.echo("Unmatched: {0}".format(unmatched_files))
     click.echo("Matched: {0}".format(schema_files))
+    changed_schemas = {*schema_files.keys()}
+    click.echo("Changed: {0}".format(changed_schemas))
+    deploy_schemas = schedule.get_dependent_schemas(*changed_schemas)
+    # Filter only to materialized schemas
+    materialized_schema = schedule.materialized_schemas()
+    click.echo("Materialised schemas: {0}".format(materialized_schema))
+    deploy_schemas &= materialized_schema
+    click.echo("Dependent Deploy: {0}".format(deploy_schemas))
+    click.echo("Changed Deploy: {0}".format(changed_schemas))
+    # If we're in test, surely we're just testing the modified ones (using state:modified)?
+    # (but we do a test full and a test incremental)
+
+    # Deploy schemas are any materialised schemas and any schemas changed.
+    # For each of these, we clone (optionally? if materialised), run, test, deploy.
 
 
 if __name__ == '__main__':

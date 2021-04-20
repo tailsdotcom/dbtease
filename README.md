@@ -39,6 +39,7 @@ Config is managed using a yaml file in the dbt project.
 ## Roadmap
 
 - initially all schema (node) details are configured directly (and not introspected). Eventually this should probably introspected.
+- need to deal with snapshots explicitly at some point - probably the end of the process.
 
 ## CLI reference
 
