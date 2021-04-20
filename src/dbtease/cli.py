@@ -70,13 +70,14 @@ def test():
     
     # Always use --fail-fast
     plan = [
-        "acquire lock on build database",
+        "acquire lock on build database",  # using generated name if we're in codeship?
         "seed", # use state:modified if we can.
         "snapshot",  # currently this is at the start - is that a good thing?
         "run --full-refresh",  # use state:modified+ if we can.
         "test", # use state:modified+ if we can.
         "run incremental", # use state:modified+ if we can.
         "test",  # yes again. (use state:modified+ if we can)
+        "release lock on build database",
     ]
 
     raise NotImplementedError("dbtease test is not implemented yet.")
@@ -115,7 +116,8 @@ def refresh():
             "perms", # or do we ignore this for now?
             "acquire lock on deploy database",
             "deploy", # schema with swap.
-            "release lock on both databases"
+            "update last deploy marker for schema", # importantly before we release lock
+            "release lock on both databases",
         ]
     ]
 
@@ -164,7 +166,7 @@ def deploy(force_backend_update):
         click.secho(
             (
                 "WARNING: No currently deployed hash, this will mean "
-                "a full test and deploy cycle. In a large project this "
+                "a deploy cycle. In a large project this "
                 "may take some time..."
             ),
             fg='yellow'
@@ -178,16 +180,17 @@ def deploy(force_backend_update):
     # Always use --fail-fast
     plan = [
         "acquire lock on build database",
+        "clone", # Clone schemas that have been modified. (including seed). [unless we can't defer to state]
         "seed", # use state:modified if we can.
         "snapshot",  # currently this is at the start - is that a good thing?
         "run --full-refresh",  # use state:modified+ if we can.
-        "test", # use state:modified+ if we can.
-        "run incremental", # use state:modified+ if we can.
-        "test",  # yes again. (use state:modified+ if we can)
+        "run incremental", # use scheme selectors if available otherwise skip. NB: no need to full refresh tables we haven't changed if we can just do incremental on them.
+        "test",  # only test once during deploy cycle - assume we tested properly the first during the PR phase.
         "docs",
         "perms",
         "acquire lock on deploy database",
-        "deploy",  # as in swap database
+        "deploy",  # as in swap database. If we only need to deploy some schemas, just do them. The others were deferred to state and so won't be complete.
+        "update last deploy marker for schema", # importantly before we release lock
         "release lock on both databases",
         "deploy",  # as in update terraform? {or is that seperate}
         "upload artifacts." # (inluding docs)
