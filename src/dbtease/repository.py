@@ -15,7 +15,7 @@ class DictStateRepository:
 
     def set_current_deployed(self, commit_hash):
         """Sets the details of the currently deployed state."""
-        self._state["currently_deployed"] = commit_hash
+        self._state["current_deployed"] = commit_hash
 
 
 class JsonStateRepository(DictStateRepository):
@@ -43,5 +43,5 @@ class JsonStateRepository(DictStateRepository):
     def set_current_deployed(self, commit_hash):
         """Sets the details of the currently deployed state."""
         state = self._load_state()
-        state["currently_deployed"] = commit_hash
+        state["current_deployed"] = commit_hash
         self._save_state(state)
