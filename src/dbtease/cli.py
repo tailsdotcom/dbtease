@@ -5,6 +5,7 @@ import yaml
 from collections import defaultdict
 
 from dbtease.schedule import DbtSchedule
+from dbtease.dbt import DbtProject
 
 
 @click.group()
@@ -13,12 +14,23 @@ def cli():
     pass
 
 
-@cli.command()
-def status():
-    """Get the current status of deployment."""
+def common_setup(project_dir, profiles_dir, schedule_dir):
+    schedule_dir = schedule_dir or project_dir
+    # Load project
+    project = DbtProject.from_path(project_dir)
     # Load the schedule
-    schedule = DbtSchedule.from_path(".")
-    status_dict = schedule.status_dict()
+    schedule = DbtSchedule.from_path(schedule_dir, profiles_dir=profiles_dir)
+    status_dict = schedule.status_dict(project=project)
+    return project, schedule, status_dict
+
+
+@cli.command()
+@click.option('--project-dir', default=".")
+@click.option('--profiles-dir', default="~/.dbt/")
+@click.option('--schedule-dir', default=None)
+def status(project_dir, profiles_dir, schedule_dir):
+    """Get the current status of deployment."""
+    project, schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
     # Output the status.
     click.echo("=== dbtease status ===")
     config_pairs = [
@@ -43,9 +55,11 @@ def status():
 @cli.command()
 def test():
     """Tests the current active changes."""
+    # Load project
+    project = DbtProject.from_path(".")
     # Load the schedule
     schedule = DbtSchedule.from_path(".")
-    status_dict = schedule.status_dict()
+    status_dict = schedule.status_dict(project=project)
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
@@ -86,9 +100,11 @@ def test():
 @cli.command()
 def refresh():
     """Runs an appropriate refresh of the existing state."""
+    # Load project
+    project = DbtProject.from_path(".")
     # Load the schedule
     schedule = DbtSchedule.from_path(".")
-    status_dict = schedule.status_dict()
+    status_dict = schedule.status_dict(project=project)
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
@@ -125,6 +141,9 @@ def refresh():
 
 
 @cli.command()
+@click.option('--project-dir', default=".")
+@click.option('--profiles-dir', default="~/.dbt/")
+@click.option('--schedule-dir', default=None)
 @click.option(
     "--force-backend-update",
     is_flag=True,
@@ -134,11 +153,9 @@ def refresh():
         "WITH THIS IN PRODUCTION."
     )
 )
-def deploy(force_backend_update):
+def deploy(project_dir, profiles_dir, schedule_dir, force_backend_update):
     """Attempt to deploy the current commit as the new live version."""
-    # Load the schedule
-    schedule = DbtSchedule.from_path(".")
-    status_dict = schedule.status_dict()
+    project, schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
@@ -157,6 +174,7 @@ def deploy(force_backend_update):
     if force_backend_update:
         click.echo(f"Setting current deployed hash to {current_hash}...")
         schedule.state_repository.set_current_deployed(
+            project=project,
             commit_hash=current_hash
         )
         click.secho('SUCCESS', fg='green')

@@ -5,16 +5,19 @@ import os.path
 import networkx as nx
 
 from dbtease.schema import DbtSchema
-from dbtease.repository import JsonStateRepository
+from dbtease.repository import JsonStateRepository, SnowflakeStateRepository
 from dbtease.git import get_git_state
+from dbtease.common import YamlFileObject
 
 
 class NotDagException(ValueError):
     pass
 
 
-class DbtSchedule:
+class DbtSchedule(YamlFileObject):
     """A schedule for dbt."""
+
+    default_file_name = "dbt_schedule.yml"
 
     def __init__(self, name, graph, state_repository):
         self.name = name
@@ -84,10 +87,10 @@ class DbtSchedule:
             "deploy_order": deploy_order
         }
 
-    def status_dict(self):
+    def status_dict(self, project):
         """Determine the current status of the repository."""
         # Load state
-        deployed_hash = self.state_repository.get_current_deployed()
+        deployed_hash = self.state_repository.get_current_deployed(project)
         # Introspect git status
         git_status = get_git_state(deployed_hash=deployed_hash)
         # Make a plan from the changed files
@@ -102,7 +105,7 @@ class DbtSchedule:
         }
 
     @classmethod
-    def from_dict(cls, config, state_repository=None):
+    def from_dict(cls, config, state_repository=None, **kwargs):
         """Load a schedule from a dict."""
         # Set up the graph
         dag = nx.DiGraph()
@@ -122,23 +125,16 @@ class DbtSchedule:
             engine = config["state"].pop("engine", None)
             if not engine:
                 raise ValueError("No repository state engine found!")
+            state_config = config["state"]
+            for state_repo_kwarg in ["profiles_dir"]:
+                if state_repo_kwarg in kwargs:
+                    state_config[state_repo_kwarg] = kwargs[state_repo_kwarg]
             state_repository = {
-                "json": JsonStateRepository
-            }[engine](**config["state"])
+                "json": JsonStateRepository,
+                "snowflake": SnowflakeStateRepository,
+            }[engine](**state_config)
         return cls(
             name=config["deployment"],
             graph=dag,
             state_repository=state_repository
         )
-
-    @classmethod
-    def from_file(cls, fname):
-        """Load a schedule from a file."""
-        with open(fname) as schedule_file:
-            config_dict = yaml.safe_load(schedule_file.read())
-        return cls.from_dict(config_dict)
-
-    @classmethod
-    def from_path(cls, path, fname="dbt_schedule.yml"):
-        """Load a schedule from a path."""
-        return cls.from_file(fname=os.path.join(path, fname))
