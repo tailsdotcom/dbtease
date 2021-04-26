@@ -91,7 +91,7 @@ class DbtSchedule(YamlFileObject):
     def status_dict(self, project, project_dir=None):
         """Determine the current status of the repository."""
         # Load state
-        deployed_hash = self.state_repository.get_current_deployed(project)
+        deployed_hash = self.state_repository.get_current_deployed(project, schedule=self)
         # Introspect git status
         git_status = get_git_state(deployed_hash=deployed_hash, repo_dir=self.git_path)
         # Make a plan from the changed files

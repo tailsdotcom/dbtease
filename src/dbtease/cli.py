@@ -196,6 +196,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force_backend_update):
         click.echo(f"Setting current deployed hash to {current_hash}...")
         schedule.state_repository.set_current_deployed(
             project=project,
+            schedule=schedule,
             commit_hash=current_hash
         )
         click.secho('SUCCESS', fg='green')
@@ -205,7 +206,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force_backend_update):
         click.secho(
             (
                 "WARNING: No currently deployed hash, this will mean "
-                "a deploy cycle. In a large project this "
+                "a full deploy cycle. In a large project this "
                 "may take some time..."
             ),
             fg='yellow'

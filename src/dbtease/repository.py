@@ -21,19 +21,19 @@ class DictStateRepository:
     def _save_state(self, state):
         self._state = state
 
-    def get_current_deployed(self, project):
+    def get_current_deployed(self, project, schedule):
         """Get the details of the currently deployed state."""
         state = self._load_state()
         if "current_deployed" not in state:
             return None
-        return state["current_deployed"].get(project.package_name, None)
+        return state["current_deployed"].get(schedule.name, None)
 
-    def set_current_deployed(self, project, commit_hash):
+    def set_current_deployed(self, project, schedule, commit_hash):
         """Sets the details of the currently deployed state."""
         state = self._load_state()
         if "current_deployed" not in state:
             state["current_deployed"] = {}
-        state["current_deployed"][project.package_name] = commit_hash
+        state["current_deployed"][schedule.name] = commit_hash
         self._save_state(state)
 
 
@@ -101,11 +101,11 @@ class SnowflakeStateRepository(DictStateRepository):
         print("Connected to snowflake. Snowflake version: ", version)
         return con
 
-    def get_current_deployed(self, project):
+    def get_current_deployed(self, project, schedule):
         """Get the details of the currently deployed state."""
         con = self._sf_connection(project.profile_name)
         try:
-            current_live = con.cursor().execute("select commit_hash from live_deploys where project_name = %s", project.profile_name).fetchone()
+            current_live = con.cursor().execute("select commit_hash from live_deploys where project_name = %s", schedule.name).fetchone()
         except snowflake.connector.errors.ProgrammingError as e:
             print("Error fetching current live. Metadata store probably not set up...")
             print(e)
@@ -116,7 +116,7 @@ class SnowflakeStateRepository(DictStateRepository):
             return current_live[0]
         return None
 
-    def set_current_deployed(self, project, commit_hash):
+    def set_current_deployed(self, project, schedule, commit_hash):
         """Sets the details of the currently deployed state."""
         con = self._sf_connection(project.profile_name)
         # Create table if not exists
@@ -136,7 +136,7 @@ class SnowflakeStateRepository(DictStateRepository):
                 "when not matched then insert (project_name, commit_hash) values (b.project_name, b.commit_hash)"
             ),
             (
-                project.profile_name,
+                schedule.name,
                 commit_hash,
             ),
         )
