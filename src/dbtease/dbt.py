@@ -1,23 +1,10 @@
 """Methods for interacting with dbt."""
 
+import yaml
+import copy
+import os.path
+
 from dbtease.common import YamlFileObject
-
-
-class DbtProject(YamlFileObject):
-
-    default_file_name = "dbt_project.yml"
-
-    def __init__(self, package_name, profile_name):
-        self.package_name = package_name
-        self.profile_name = profile_name
-
-    @classmethod
-    def from_dict(cls, config):
-        """Load a project from a dict."""
-        return cls(
-            package_name=config["name"],
-            profile_name=config["profile"]
-        )
 
 
 class DbtProfiles(YamlFileObject):
@@ -50,3 +37,38 @@ class DbtProfiles(YamlFileObject):
         target_dict = profile_dict["outputs"][target]
         assert target_dict["type"] == "snowflake"
         return target_dict
+    
+    def generate_patched_yml(self, database=None, target=None):
+        new_profiles_obj = copy.deepcopy(self.profiles_obj)
+        # Get detault target if not set
+        target = target or new_profiles_obj[self.profile]["target"]
+        # Remove any other targets
+        for profile_target in list(new_profiles_obj[self.profile]["outputs"].keys()):
+            if profile_target != target:
+                new_profiles_obj[self.profile]["outputs"].pop(profile_target)
+        # Patch database
+        if database:
+            new_profiles_obj[self.profile]["outputs"][target]["database"] = database
+        return yaml.dump(new_profiles_obj)
+    
+
+class DbtProject(YamlFileObject):
+
+    default_file_name = "dbt_project.yml"
+
+    def __init__(self, package_name, profile_name):
+        self.package_name = package_name
+        self.profile_name = profile_name
+
+    @classmethod
+    def from_dict(cls, config):
+        """Load a project from a dict."""
+        return cls(
+            package_name=config["name"],
+            profile_name=config["profile"]
+        )
+    
+    def generate_profiles_yml(self, profiles_dir="~/.dbt/", database=None, target=None):
+        profiles_dir = os.path.expanduser(profiles_dir)
+        parent_profiles = DbtProfiles.from_path(path=profiles_dir, profile=self.profile_name)
+        return parent_profiles.generate_patched_yml(database=database, target=target)

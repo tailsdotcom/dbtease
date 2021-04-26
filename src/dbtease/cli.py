@@ -7,6 +7,8 @@ from collections import defaultdict
 from dbtease.schedule import DbtSchedule
 from dbtease.dbt import DbtProject
 
+from dbtease.config_context import ConfigContext
+
 
 @click.group()
 @click.version_option()
@@ -130,6 +132,13 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
     else:
         deploy_plan = status_dict["deploy_order"]
     click.echo(f"Deploying schemas: {deploy_plan!r}")
+    
+    config_files = {
+        "profiles.yml": project.generate_profiles_yml(database="foo")
+    }
+
+    with ConfigContext(file_dict=config_files) as config_path:
+        print("Config Path:", config_path)
 
     # Always use --fail-fast
     plan = [
