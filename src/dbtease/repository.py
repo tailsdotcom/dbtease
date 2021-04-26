@@ -6,6 +6,9 @@ import os.path
 
 import snowflake.connector
 
+from dbtease.dbt import DbtProfiles
+
+
 class DictStateRepository:
     """Basic state responsitory using an in memory dict."""
 
@@ -63,19 +66,13 @@ class SnowflakeStateRepository(DictStateRepository):
         self._profiles = {}
     
     def _load_profile(self, profile, target=None, profiles_file="profiles.yml"):
-        # TODO: Probably needs much mroe exception handling.
+        # TODO: Probably needs much more exception handling.
         # TODO: Deal with jinja templating too.
         try:
-            with open(os.path.join(self.profiles_dir, profiles_file)) as profiles_file:
-                profiles_dict = yaml.safe_load(profiles_file)
+            profiles = DbtProfiles.from_path(path=self.profiles_dir, profile=profile)
         except FileNotFoundError:
             return {}
-        # Use given profile
-        profile_dict = profiles_dict[profile]
-        
-        # Use default target if not given
-        target = target or profile_dict.get("target", None)
-        target_dict = profile_dict["outputs"][target]
+        target_dict =  profiles.get_target_dict(target=target)
         assert target_dict["type"] == "snowflake"
         return target_dict
     
