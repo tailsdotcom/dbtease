@@ -87,7 +87,7 @@ class DbtSchedule(YamlFileObject):
             "deploy_order": deploy_order
         }
 
-    def status_dict(self, project):
+    def status_dict(self, project, project_dir=None):
         """Determine the current status of the repository."""
         # Load state
         deployed_hash = self.state_repository.get_current_deployed(project)
@@ -95,6 +95,13 @@ class DbtSchedule(YamlFileObject):
         git_status = get_git_state(deployed_hash=deployed_hash)
         # Make a plan from the changed files
         changed_files = git_status["diff"] | git_status["untracked"]
+        # Adjust for project dir if we need to.
+        if project_dir:
+            changed_files = {
+                os.path.relpath(fpath, project_dir)
+                for fpath in changed_files
+                if os.path.abspath(fpath).startswith(os.path.abspath(project_dir))
+            }
         plan_dict = self._plan_from_changed_files(changed_files)
         return {
             "deployed_hash": deployed_hash,

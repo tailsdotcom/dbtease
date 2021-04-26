@@ -20,7 +20,7 @@ def common_setup(project_dir, profiles_dir, schedule_dir):
     project = DbtProject.from_path(project_dir)
     # Load the schedule
     schedule = DbtSchedule.from_path(schedule_dir, profiles_dir=profiles_dir)
-    status_dict = schedule.status_dict(project=project)
+    status_dict = schedule.status_dict(project=project, project_dir=project_dir)
     return project, schedule, status_dict
 
 
@@ -98,13 +98,13 @@ def test():
 
 
 @cli.command()
-def refresh():
+@click.option('--project-dir', default=".")
+@click.option('--profiles-dir', default="~/.dbt/")
+@click.option('--schedule-dir', default=None)
+@click.option('-s', '--schema', default=None)
+def refresh(project_dir, profiles_dir, schedule_dir, schema):
     """Runs an appropriate refresh of the existing state."""
-    # Load project
-    project = DbtProject.from_path(".")
-    # Load the schedule
-    schedule = DbtSchedule.from_path(".")
-    status_dict = schedule.status_dict(project=project)
+    project, schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
@@ -119,6 +119,18 @@ def refresh():
             "stash or discard changes to run refresh."
         )
     
+    if schema:
+        schema_options = {name for name, _ in schedule.iter_schemas()}
+        if schema not in schema_options:
+            raise click.UsageError(
+                f"Provided schema {schema!r} not found in "
+                "schedule file."
+            )
+        deploy_plan = [schema]
+    else:
+        deploy_plan = status_dict["deploy_order"]
+    click.echo(f"Deploying schemas: {deploy_plan!r}")
+
     # Always use --fail-fast
     plan = [
         "snapshot",  # currently this is at the start - is that a good thing?
