@@ -19,10 +19,11 @@ class DbtSchedule(YamlFileObject):
 
     default_file_name = "dbt_schedule.yml"
 
-    def __init__(self, name, graph, state_repository):
+    def __init__(self, name, graph, state_repository, git_path="."):
         self.name = name
         self.graph = graph
         self.state_repository = state_repository
+        self.git_path = git_path
 
     def iter_schemas(self):
         for node_name in self.graph.nodes:
@@ -92,7 +93,7 @@ class DbtSchedule(YamlFileObject):
         # Load state
         deployed_hash = self.state_repository.get_current_deployed(project)
         # Introspect git status
-        git_status = get_git_state(deployed_hash=deployed_hash)
+        git_status = get_git_state(deployed_hash=deployed_hash, repo_dir=self.git_path)
         # Make a plan from the changed files
         changed_files = git_status["diff"] | git_status["untracked"]
         # Adjust for project dir if we need to.
@@ -140,8 +141,14 @@ class DbtSchedule(YamlFileObject):
                 "json": JsonStateRepository,
                 "snowflake": SnowflakeStateRepository,
             }[engine](**state_config)
-        return cls(
-            name=config["deployment"],
-            graph=dag,
-            state_repository=state_repository
-        )
+        
+        # Config kwargs
+        schedule_kwargs = {
+            "name": config["deployment"],
+            "graph": dag,
+            "state_repository": state_repository
+        }
+        # Use the git path if provided.
+        if "git_path" in config:
+            schedule_kwargs["git_path"] = config["git_path"]
+        return cls(**schedule_kwargs)
