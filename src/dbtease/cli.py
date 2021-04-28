@@ -236,6 +236,16 @@ def deploy(project_dir, profiles_dir, schedule_dir):
             # dbt deps
             cli_run_dbt_command(["deps"])
             # make sure we've got a database to work with.
+
+            # Try to get a lock.
+            build_db_lock = schedule.warehouse.acquire_lock(schedule.build_config["database"])
+            if not build_db_lock:
+                raise click.UsageError(
+                    "Unable to lock {0!r}. Someone else has the lock. Try again later.".format(schedule.build_config["database"])
+                )
+            else:
+                print(f"Acquired lock: {build_db_lock}")
+
             # NOTE: Requires particular macros. Should make dbt package to install.
             # Or should this actually be in build into dbtease? (probably the latter).
             # This whould involve a wipe!

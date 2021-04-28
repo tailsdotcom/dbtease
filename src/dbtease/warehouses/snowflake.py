@@ -2,6 +2,7 @@
 
 import logging
 import snowflake.connector
+import uuid
 
 from dbtease.warehouses.base import Sql, Warehouse
 
@@ -110,12 +111,12 @@ class SnowflakeWarehouse(Warehouse):
             ),
             # Do the upsert of new metadata
             Sql(
-                (
-                    "merge into live_deploys using (select %s as project_name, %s as commit_hash, %s as manifest) as b "
-                    "on live_deploys.project_name = b.project_name "
-                    "when matched then update set live_deploys.commit_hash = b.commit_hash, live_deploys.manifest = b.manifest "
-                    "when not matched then insert (project_name, commit_hash, manifest) values (b.project_name, b.commit_hash, b.manifest)"
-                ),
+                """
+                merge into live_deploys using (select %s as project_name, %s as commit_hash, %s as manifest) as b
+                        on live_deploys.project_name = b.project_name
+                    when matched then update set live_deploys.commit_hash = b.commit_hash, live_deploys.manifest = b.manifest
+                    when not matched then insert (project_name, commit_hash, manifest) values (b.project_name, b.commit_hash, b.manifest)
+                """,
                 (
                     project_name,
                     commit_hash,
@@ -127,3 +128,41 @@ class SnowflakeWarehouse(Warehouse):
             f"ALTER DATABASE {build_db} SWAP WITH {deploy_db}",
             f"DROP DATABASE {build_db}",
         )
+    
+    def acquire_lock(self, target: str, ttl_minutes=1):
+        lock_key = str(uuid.uuid4())
+        # Make sure we have a locks table.
+        self._execute_sql(f"CREATE DATABASE IF NOT EXISTS {self.state_database}")
+        self._execute_sql(f"CREATE SCHEMA IF NOT EXISTS {self.state_schema}")
+        self._execute_sql(
+            "CREATE TABLE IF NOT EXISTS database_locks "
+            " (target_database string, process_id string, lock_timeout TIMESTAMP_NTZ)"
+        )
+        # Acquire lock if we can.
+        self._execute_sql(
+            """
+            merge into database_locks using (
+                        select
+                            %s as target_database,
+                            %s as process_id,
+                            TIMESTAMPADD(
+                                minute , %s , current_timestamp()
+                            ) as lock_timeout
+                    ) as b
+                    on database_locks.target_database = b.target_database
+                when matched and database_locks.lock_timeout < current_timestamp()
+                    then update set database_locks.process_id = b.process_id, database_locks.lock_timeout = b.lock_timeout
+                when not matched then insert (target_database, process_id, lock_timeout) values (b.target_database, b.process_id, b.lock_timeout)
+            """,
+            (target, lock_key, ttl_minutes)
+        )
+        # Did we get it?
+        current_lock = self._execute_sql("SELECT process_id FROM database_locks WHERE target_database = %s", target)[0][0]
+        if current_lock == lock_key:
+            return lock_key
+        else:
+            return None
+
+
+    def release_lock(self, target: str):
+        ...
