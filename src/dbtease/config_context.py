@@ -20,7 +20,7 @@ class ConfigContext:
             with open(os.path.join(self.config_path, fname), "w") as config_file:
                 config_file.write(self.file_dict[fname])
         return self.config_path
-    
+
     def __exit__(self, type, value, traceback):
         """Clean up."""
         if os.path.exists(self.config_path) and False:  # TODO: Remove the False to enable cleanup

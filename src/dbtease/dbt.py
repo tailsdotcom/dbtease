@@ -28,7 +28,7 @@ class DbtProfiles(YamlFileObject):
         # Bring across the target profile
         profiles_obj[profile] = config[profile]
         return cls(profiles_obj=profiles_obj, profile=profile)
-    
+
     def get_target_dict(self, target=None):
         # Get the main profile
         profile_dict = self.profiles_obj[self.profile]
@@ -37,7 +37,7 @@ class DbtProfiles(YamlFileObject):
         target_dict = profile_dict["outputs"][target]
         assert target_dict["type"] == "snowflake"
         return target_dict
-    
+
     def generate_patched_yml(self, database=None, target=None):
         new_profiles_obj = copy.deepcopy(self.profiles_obj)
         # Get detault target if not set
@@ -50,7 +50,7 @@ class DbtProfiles(YamlFileObject):
         if database:
             new_profiles_obj[self.profile]["outputs"][target]["database"] = database
         return yaml.dump(new_profiles_obj)
-    
+
 
 class DbtProject(YamlFileObject):
 
@@ -67,7 +67,7 @@ class DbtProject(YamlFileObject):
             package_name=config["name"],
             profile_name=config["profile"]
         )
-    
+
     def generate_profiles_yml(self, profiles_dir="~/.dbt/", database=None, target=None):
         profiles_dir = os.path.expanduser(profiles_dir)
         parent_profiles = DbtProfiles.from_path(path=profiles_dir, profile=self.profile_name)

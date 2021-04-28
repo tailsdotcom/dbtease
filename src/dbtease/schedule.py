@@ -1,11 +1,11 @@
 """Routines for loading the dbt_schedule.yml file."""
 
-import yaml
 import os.path
 import networkx as nx
 
 from dbtease.schema import DbtSchema
-from dbtease.repository import JsonStateRepository, SnowflakeStateRepository
+from dbtease.warehouses import get_warehouse_from_target
+from dbtease.dbt import DbtProfiles, DbtProject
 from dbtease.git import get_git_state
 from dbtease.common import YamlFileObject
 
@@ -19,11 +19,13 @@ class DbtSchedule(YamlFileObject):
 
     default_file_name = "dbt_schedule.yml"
 
-    def __init__(self, name, graph, state_repository, git_path=".", build_config=None, deploy_config=None):
+    def __init__(self, name, graph, warehouse, project, project_dir=".", git_path=".", build_config=None, deploy_config=None):
         self.name = name
         self.graph = graph
-        self.state_repository = state_repository
+        self.warehouse = warehouse
+        self.project = project
         self.git_path = git_path
+        self.project_dir = project_dir
         self.build_config = build_config or {}
         self.deploy_config = deploy_config or {}
 
@@ -90,20 +92,20 @@ class DbtSchedule(YamlFileObject):
             "deploy_order": deploy_order
         }
 
-    def status_dict(self, project, project_dir=None):
+    def status_dict(self):
         """Determine the current status of the repository."""
         # Load state
-        deployed_hash = self.state_repository.get_current_deployed(project, schedule=self)
+        deployed_hash = self.warehouse.get_current_deployed(self.name)
         # Introspect git status
         git_status = get_git_state(deployed_hash=deployed_hash, repo_dir=self.git_path)
         # Make a plan from the changed files
         changed_files = git_status["diff"] | git_status["untracked"]
         # Adjust for project dir if we need to.
-        if project_dir:
+        if self.project_dir:
             changed_files = {
-                os.path.relpath(fpath, project_dir)
+                os.path.relpath(fpath, self.project_dir)
                 for fpath in changed_files
-                if os.path.abspath(fpath).startswith(os.path.abspath(project_dir))
+                if os.path.abspath(fpath).startswith(os.path.abspath(self.project_dir))
             }
         plan_dict = self._plan_from_changed_files(changed_files)
         return {
@@ -115,7 +117,7 @@ class DbtSchedule(YamlFileObject):
         }
 
     @classmethod
-    def from_dict(cls, config, state_repository=None, **kwargs):
+    def from_dict(cls, config, warehouse=None, target_dict=None, project=None, project_dir=".", target_name=None, **kwargs):
         """Load a schedule from a dict."""
         # Set up the graph
         dag = nx.DiGraph()
@@ -128,35 +130,41 @@ class DbtSchedule(YamlFileObject):
                 ])
         if not nx.algorithms.dag.is_directed_acyclic_graph(dag):
             raise NotDagException("Not a DAG!")
-        # Set up the state repository:
-        if not state_repository:
-            if "state" not in config:
-                raise ValueError("No repository config found!")
-            engine = config["state"].pop("engine", None)
-            if not engine:
-                raise ValueError("No repository state engine found!")
-            state_config = config["state"]
-            for state_repo_kwarg in ["profiles_dir"]:
-                if state_repo_kwarg in kwargs:
-                    state_config[state_repo_kwarg] = kwargs[state_repo_kwarg]
-            state_repository = {
-                "json": JsonStateRepository,
-                "snowflake": SnowflakeStateRepository,
-            }[engine](**state_config)
-        
+
+        # Make sure we've got a project
+        if not project:
+            # Load project
+            project = DbtProject.from_path(project_dir)
+
+        # Set up the state warehouse connection:
+        if not warehouse:
+            # Get the details of the target from the profiles file if not provided.
+            if not target_dict:
+                # Load from default profiles dir
+                profiles_dir = os.path.expanduser("~/.dbt/")
+                # TODO: Probably needs much more exception handling.
+                # TODO: Deal with jinja templating too.
+                profiles = DbtProfiles.from_path(path=profiles_dir, profile=project.profile_name)
+                target_dict = profiles.get_target_dict(target=target_name)
+
+            warehouse = get_warehouse_from_target(target_dict)
+
         # Config kwargs
         schedule_kwargs = {
             "name": config["deployment"],
             "graph": dag,
-            "state_repository": state_repository
+            "warehouse": warehouse,
+            "project": project,
+            "project_dir": project_dir,
         }
         # Use the git path if provided.
         if "git_path" in config:
             schedule_kwargs["git_path"] = config["git_path"]
 
-        # Add build and deployy configs if present.
+        # Add build and deploy configs if present.
         if "deploy" in config:
             schedule_kwargs["deploy_config"] = config["deploy"]
         if "build" in config:
             schedule_kwargs["build_config"] = config["build"]
+
         return cls(**schedule_kwargs)

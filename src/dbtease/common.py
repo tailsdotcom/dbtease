@@ -3,6 +3,7 @@
 import yaml
 import os.path
 
+
 class YamlFileObject:
     """Common class for a yaml file object."""
 
