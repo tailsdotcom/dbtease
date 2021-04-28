@@ -19,11 +19,13 @@ class DbtSchedule(YamlFileObject):
 
     default_file_name = "dbt_schedule.yml"
 
-    def __init__(self, name, graph, state_repository, git_path="."):
+    def __init__(self, name, graph, state_repository, git_path=".", build_config=None, deploy_config=None):
         self.name = name
         self.graph = graph
         self.state_repository = state_repository
         self.git_path = git_path
+        self.build_config = build_config or {}
+        self.deploy_config = deploy_config or {}
 
     def iter_schemas(self):
         for node_name in self.graph.nodes:
@@ -151,4 +153,10 @@ class DbtSchedule(YamlFileObject):
         # Use the git path if provided.
         if "git_path" in config:
             schedule_kwargs["git_path"] = config["git_path"]
+
+        # Add build and deployy configs if present.
+        if "deploy" in config:
+            schedule_kwargs["deploy_config"] = config["deploy"]
+        if "build" in config:
+            schedule_kwargs["build_config"] = config["build"]
         return cls(**schedule_kwargs)

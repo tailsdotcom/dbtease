@@ -1,6 +1,8 @@
 import click
 import os.path
 import yaml
+import logging
+import sys
 
 from collections import defaultdict
 
@@ -8,6 +10,17 @@ from dbtease.schedule import DbtSchedule
 from dbtease.dbt import DbtProject
 
 from dbtease.config_context import ConfigContext
+from dbtease.shell import run_shell_command
+
+
+# Set up logging properly
+root = logging.getLogger("dbtease")
+root.setLevel(logging.INFO)
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+root.addHandler(ch)
 
 
 @click.group()
@@ -36,6 +49,7 @@ def status(project_dir, profiles_dir, schedule_dir):
     # Output the status.
     click.echo("=== dbtease status ===")
     config_pairs = [
+        ("Deployment Name", schedule.name),
         ("Deployed Hash", status_dict["deployed_hash"]),
         ("Current Hash", status_dict["current_hash"]),
         ("Uncommitted Changes", status_dict["dirty_tree"]),
@@ -161,6 +175,22 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
     raise NotImplementedError("dbtease refresh is not implemented yet.")
 
 
+def cli_run_command(cmd):
+    retcode, stdoutlines = run_shell_command(cmd)
+    if retcode != 0:
+        # TODO: Better error message here.
+        raise click.ClickException("Command Failed!")
+    return retcode, stdoutlines
+
+
+def cli_run_dbt_command(cmd):
+    try:
+        retcode, stdoutlines = cli_run_command(["dbt"] + cmd)
+    except FileNotFoundError:
+        raise click.UsageError("ERROR: dbt not found. Please install dbt.")
+    return retcode, stdoutlines
+
+
 @cli.command()
 @click.option('--project-dir', default=".")
 @click.option('--profiles-dir', default="~/.dbt/")
@@ -180,7 +210,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force_backend_update):
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
-    if status_dict["dirty_tree"]:
+    if status_dict["dirty_tree"] and False:  ## For testing
         raise click.UsageError(
             "Uncommitted Git changes. Please "
             "commit, stash or discard changes to run deploy."
@@ -214,6 +244,56 @@ def deploy(project_dir, profiles_dir, schedule_dir, force_backend_update):
         defer_to_state = False
     else:
         defer_to_state = True
+
+    # Do the deploy.
+    if defer_to_state:
+        # Stepwise deploy
+        raise NotImplementedError("dbtease partial deploy is not implemented yet.")
+    else:
+        # Full deploy
+
+        # Set up our config files
+        config_files = {
+            "profiles.yml": project.generate_profiles_yml(database=schedule.build_config["database"])
+        }
+        with ConfigContext(file_dict=config_files) as config_path:
+            print("Config Path:", config_path)
+            profile_args = ["--profiles-dir", config_path]
+            # dbt deps
+            cli_run_dbt_command(["deps"])
+            # make sure we've got a database to work with.
+            # NOTE: Requires particular macros. Should make dbt package to install.
+            # Or should this actually be in build into dbtease? (probably the latter).
+            # This whould involve a wipe!
+            cli_run_dbt_command(["run-operation", "create_build_db"] + profile_args)
+            # run dbt seed
+            cli_run_dbt_command(["seed"] + profile_args)
+            # run dbt snapshot?
+            # run dbt build --full-refresh
+            # run dbt test
+            # MAYBE (or maybe just test run): run dbt build (for incremental)
+            # MAYBE (or maybe just test run): run dbt test
+            # run dbt docs
+            # upload docs
+            # deploy and upload manifest in same transaction!
+
+            # Get manifest
+            with open("target/manifest.json") as manifest_file:
+                manifest = manifest_file.read()
+            schedule.state_repository.deploy(
+                project,
+                schedule,
+                commit_hash=current_hash,
+                manifest=manifest,
+                build_db=schedule.build_config["database"],
+                deploy_db=schedule.deploy_config["database"],
+            )
+
+            # We should check that the user currently has access to the S3 destination before building (if we're using S3 as a backend).
+            # Maybe assume manifest in snowflake.
+            # Otherwise this could get sticky.
+
+        raise NotImplementedError("dbtease full deploy is not implemented yet.")
 
     # WE NEED TO WORK OUT HOW TO HANDLE SEEDS!
     

@@ -81,7 +81,7 @@ class SnowflakeStateRepository(DictStateRepository):
             self._profiles[profile_name] = self._load_profile(profile=profile_name)
         return self._profiles[profile_name]
     
-    def _sf_connection(self, profile_name):
+    def _sf_connection(self, profile_name, autocommit=True):
         # TODO: Do some nice stuff around importing snowflake and allowing
         # installation of the package without snowflake if someone is using
         # a different backend.
@@ -93,6 +93,8 @@ class SnowflakeStateRepository(DictStateRepository):
             warehouse=profile["warehouse"],
             database=self.state_database,
             schema=self.state_schema,
+            # For transactions
+            autocommit=autocommit,
             session_parameters={
                 'QUERY_TAG': 'dbtease-metadata',
             }
@@ -116,7 +118,49 @@ class SnowflakeStateRepository(DictStateRepository):
             return current_live[0]
         return None
 
-    def set_current_deployed(self, project, schedule, commit_hash):
+    def deploy(self, project, schedule, commit_hash: str, manifest: str, build_db: str, deploy_db: str):
+        """Deploy the current project."""
+        # NOTE: TODO - in transactions, merge results and swap DB
+        # TODO: Make sure we acquire a lock first.
+        # https://docs.snowflake.com/en/user-guide/python-connector-example.html#using-context-manager-to-connect-and-control-transactions
+        con = self._sf_connection(project.profile_name, autocommit=False)
+        try:
+            # Create table if not exists
+            # TODO: Handle persmissions somewhere. Probably Docs.
+            con.cursor().execute(f"CREATE DATABASE IF NOT EXISTS {self.state_database}")
+            con.cursor().execute(f"CREATE SCHEMA IF NOT EXISTS {self.state_schema}")
+            con.cursor().execute(
+                "CREATE TABLE IF NOT EXISTS live_deploys "
+                " (project_name string, commit_hash string, manifest string)"
+            )
+            # Do the upsert of new metadata
+            con.cursor().execute(
+                (
+                    "merge into live_deploys using (select %s as project_name, %s as commit_hash, %s as manifest) as b "
+                    "on live_deploys.project_name = b.project_name "
+                    "when matched then update set live_deploys.commit_hash = b.commit_hash, live_deploys.manifest = b.manifest "
+                    "when not matched then insert (project_name, commit_hash, manifest) values (b.project_name, b.commit_hash, b.manifest)"
+                ),
+                (
+                    schedule.name,
+                    commit_hash,
+                    manifest,
+                ),
+            )
+            # Do the swap (creating the destination if it doesn't already exist).
+            con.cursor().execute(f"CREATE DATABASE IF NOT EXISTS {deploy_db}")
+            con.cursor().execute(f"ALTER DATABASE {build_db} SWAP WITH {deploy_db}")
+            # Remove the old database now that we're done.
+            con.cursor().execute(f"DROP DATABASE {build_db}")
+            # And... commit
+            con.commit()
+        except Exception as e:
+            con.rollback()
+            raise e
+        finally:
+            con.close()
+
+    def set_current_deployed(self, project, schedule, commit_hash, manifest):
         """Sets the details of the currently deployed state."""
         con = self._sf_connection(project.profile_name)
         # Create table if not exists
@@ -125,18 +169,19 @@ class SnowflakeStateRepository(DictStateRepository):
         con.cursor().execute("CREATE SCHEMA IF NOT EXISTS {}".format(self.state_schema))
         con.cursor().execute(
             "CREATE TABLE IF NOT EXISTS live_deploys "
-            " (project_name string, commit_hash string)"
+            " (project_name string, commit_hash string, manifest string)"
         )
         # Do the upsert
         con.cursor().execute(
             (
-                "merge into live_deploys using (select %s as project_name, %s as commit_hash) as b "
+                "merge into live_deploys using (select %s as project_name, %s as commit_hash, %s as manifest) as b "
                 "on live_deploys.project_name = b.project_name "
-                "when matched then update set live_deploys.commit_hash = b.commit_hash "
-                "when not matched then insert (project_name, commit_hash) values (b.project_name, b.commit_hash)"
+                "when matched then update set live_deploys.commit_hash = b.commit_hash, live_deploys.manifest = b.manifest"
+                "when not matched then insert (project_name, commit_hash, manifest) values (b.project_name, b.commit_hash, b.manifest)"
             ),
             (
                 schedule.name,
                 commit_hash,
+                manifest,
             ),
         )
