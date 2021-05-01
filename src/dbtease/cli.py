@@ -34,17 +34,10 @@ def common_setup(project_dir, profiles_dir, schedule_dir, deploy=True):
     return schedule, status_dict
 
 
-@cli.command()
-@click.option('--project-dir', default=".")
-@click.option('--profiles-dir', default="~/.dbt/")
-@click.option('--schedule-dir', default=None)
-def status(project_dir, profiles_dir, schedule_dir):
-    """Get the current status of deployment."""
-    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
-    # Output the status.
+def echo_status(status_dict, project_name):
     click.echo("=== dbtease status ===")
     config_pairs = [
-        ("Deployment Name", schedule.name),
+        ("Deployment Name", project_name),
         ("Deployed Hash", status_dict["deployed_hash"]),
         ("Current Hash", status_dict["current_hash"]),
         ("Uncommitted Changes", status_dict["dirty_tree"]),
@@ -64,6 +57,18 @@ def status(project_dir, profiles_dir, schedule_dir):
         click.echo(f"== schema: {schema_name} ==")
         for fname in status_dict["matched_files"][schema_name]:
             click.echo(f"- {fname}")
+    click.echo("===")
+
+
+@cli.command()
+@click.option('--project-dir', default=".")
+@click.option('--profiles-dir', default="~/.dbt/")
+@click.option('--schedule-dir', default=None)
+def status(project_dir, profiles_dir, schedule_dir):
+    """Get the current status of deployment."""
+    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
+    # Output the status.
+    echo_status(status_dict, schedule.name)
 
 
 @cli.command()
@@ -286,6 +291,8 @@ def database_deploy(schedule, current_hash, defer_to_state):
 def refresh(project_dir, profiles_dir, schedule_dir, schema):
     """Runs an appropriate refresh of the existing state."""
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir, deploy=False)
+    # Output the status.
+    echo_status(status_dict, schedule.name)
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
