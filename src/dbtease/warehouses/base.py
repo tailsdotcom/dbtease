@@ -44,5 +44,5 @@ class Warehouse(ABC):
         ...
 
     @abstractmethod
-    def release_lock(self, target: str):
+    def release_lock(self, target: str, lock_key: str):
         ...
