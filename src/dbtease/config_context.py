@@ -36,13 +36,13 @@ class ConfigContext:
         for fname in file_dict:
             with open(os.path.join(self.config_path, fname), "w", encoding="utf8") as config_file:
                 config_file.write(file_dict[fname])
-    
+
     def update_files(self, file_dict):
         # update the self record
         self.file_dict.update(file_dict)
         # Persist the new changes
         self._persist_file_dict(file_dict)
-    
+
     @contextmanager
     def patch_files(self, file_dict):
         """Temporarily patch files in context as a context manager."""
@@ -55,7 +55,7 @@ class ConfigContext:
             self._persist_file_dict(
                 {fname: self.file_dict[fname] for fname in file_dict}
             )
-    
+
     def stash_files(self, *paths):
         file_dict = {}
         # read the files
@@ -65,7 +65,7 @@ class ConfigContext:
                 file_dict[fname] = stash_file.read()
         # Add them to the session
         self.update_files(file_dict)
-    
+
     def read_file(self, fname):
         with open(os.path.join(self.config_path, fname), encoding="utf8") as read_file:
             content = read_file.read()

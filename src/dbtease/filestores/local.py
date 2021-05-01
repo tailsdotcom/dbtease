@@ -1,7 +1,6 @@
 """Local Filestore Class."""
 
 import os.path
-import logging
 
 from dbtease.filestores.base import Filestore
 
@@ -11,7 +10,7 @@ class LocalFilestore(Filestore):
 
     def __init__(self, path):
         self._local_path = os.path.expanduser(path)
-    
+
     def upload_files(self, *paths: str):
         for path in paths:
             _, fname = os.path.split(path)

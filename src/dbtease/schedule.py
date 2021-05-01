@@ -76,7 +76,7 @@ class DbtSchedule(YamlFileObject):
             name for name, schema in self.iter_schemas()
             if schema.materialized
         )
-    
+
     def _determine_deploy_order(self, schemas):
         deploy_order = []
         for node in nx.topological_sort(self.graph):

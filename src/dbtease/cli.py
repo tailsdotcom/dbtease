@@ -4,7 +4,6 @@ import sys
 import datetime
 
 from dbtease.schedule import DbtSchedule
-from dbtease.dbt import DbtProject
 
 from dbtease.config_context import ConfigContext
 from dbtease.shell import run_shell_command
@@ -122,7 +121,7 @@ def test(project_dir, profiles_dir, schedule_dir, database):
                 schedule.warehouse.create_wipe_db(build_db)
                 if defer_to_state:
                     # run dbt seed
-                    cli_run_dbt_command(["seed", "--select", "state:modified", "--full-refresh", "--state", str(ctx)] + profile_args)  
+                    cli_run_dbt_command(["seed", "--select", "state:modified", "--full-refresh", "--state", str(ctx)] + profile_args)
                     # run dbt. NOTE: full refresh + to also do donwstream dependencies. Defer so we don't build what we don't need.
                     cli_run_dbt_command(["run", "--models", "state:modified+", "--full-refresh", "--fail-fast", "--defer", "--state", str(ctx)] + profile_args)
                     # dbt test. with dependencies
@@ -131,7 +130,7 @@ def test(project_dir, profiles_dir, schedule_dir, database):
                     cli_run_dbt_command(["run", "--models", "state:modified+,config.materialized:incremental+", "--defer", "--fail-fast", "--state", str(ctx)] + profile_args)
                     # dbt test again, with dependencies
                     cli_run_dbt_command(["test", "--models", "state:modified+,config.materialized:incremental+", "--defer", "--state", str(ctx)] + profile_args)
-                else:     
+                else:
                     # run dbt seed
                     cli_run_dbt_command(["seed", "--full-refresh"] + profile_args)
                     # run dbt build --full-refresh
@@ -148,13 +147,12 @@ def test(project_dir, profiles_dir, schedule_dir, database):
         raise err
 
 
-
 def cli_run_command(cmd):
     click.secho(
         f"Running: {' '.join(cmd)}",
         fg='bright_blue'
     )
-    retcode, stdoutlines,stderrlines = run_shell_command(cmd, echo=click.echo)
+    retcode, stdoutlines, stderrlines = run_shell_command(cmd, echo=click.echo)
     if retcode != 0:
         # TODO: Better error message here.
         for errline in stderrlines:
@@ -219,7 +217,7 @@ def schemawise_refresh(deploy_plan, schedule, manifest, current_hash):
                     )
 
 
-def database_deploy(schedule, current_hash, defer_to_state):
+def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
     # Do the deploy.
     build_timestamp = datetime.datetime.utcnow()
     # Set up our config files
@@ -254,7 +252,7 @@ def database_deploy(schedule, current_hash, defer_to_state):
                 )
 
                 # Build each schema individually, but deploy in one transaction.
-                for schema_name in status_dict["deploy_order"]:
+                for schema_name in deploy_order:
                     click.secho(f"BUILDING: {schema_name}", fg='cyan')
                     schema = schedule.get_schema(schema_name)
                     # run dbt seed
@@ -263,7 +261,7 @@ def database_deploy(schedule, current_hash, defer_to_state):
                     cli_run_dbt_command(["run", "--models", schema.selector(), "--full-refresh", "--fail-fast"] + profile_args)
                     # run dbt test
                     cli_run_dbt_command(["test", "--models", schema.selector()] + profile_args)
-            else:     
+            else:
                 # make sure we've got a database to work with.
                 click.secho("Initialising build database", fg='bright_blue')
                 schedule.warehouse.create_wipe_db(schedule.build_config["database"])
@@ -274,9 +272,7 @@ def database_deploy(schedule, current_hash, defer_to_state):
                 cli_run_dbt_command(["run", "--full-refresh", "--fail-fast"] + profile_args)
                 # run dbt test
                 cli_run_dbt_command(["test"] + profile_args)
-                # MAYBE (or maybe just test run): run dbt build (for incremental)
-                # MAYBE (or maybe just test run): run dbt test
-                
+
             # Get lock on deploy DB
             click.secho("Acquiring Deploy Lock", fg='bright_blue')
             with schedule.warehouse.lock(schedule.deploy_config["database"]):
@@ -350,7 +346,7 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
         deploy_plan = [schema]
     else:
         deploy_plan = status_dict["refreshes_due"]
-    
+
     if not deploy_plan:
         click.secho("No refreshes due...", fg='green')
     else:
@@ -359,10 +355,11 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
         # If redeploy is due, then do a redeploy.
         if status_dict["redeploy_due"]:
             click.secho(
-                f"WARNING: Full redeploy is due. This may take some time on a large project.",
+                "WARNING: Full redeploy is due. This may take some time on a large project.",
                 fg='yellow'
             )
-            database_deploy(schedule, current_hash, defer_to_state=False)
+            database_deploy(schedule, current_hash, defer_to_state=False,
+                            deploy_order=status_dict["deploy_order"])
         else:
             click.secho(f"Refreshing schemas: {deploy_plan!r}", fg='cyan')
             # Refresh cycle.
@@ -414,6 +411,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
     # Do the deploy.
     database_deploy(schedule, current_hash, defer_to_state)
     click.secho("DONE", fg='green')
+
 
 if __name__ == '__main__':
     cli()

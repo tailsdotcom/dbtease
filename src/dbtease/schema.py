@@ -33,7 +33,7 @@ class DbtSchema:
                 if os.path.realpath(path).startswith(self_path)
             )
         return matched_paths
-    
+
     def selector(self):
         selectors = ["path:" + path for path in self.paths]
         return ' '.join(selectors)

@@ -152,7 +152,7 @@ class SnowflakeWarehouse(Warehouse):
                         when not matched then insert (project_name, schema, build_timestamp) values (b.project_name, b.schema, b.build_timestamp)
                     """,
                     (project_name, schema, build_timestamp.isoformat())
-                # We add the full deploy flag here to keep track of the last deploy.
+                    # We add the full deploy flag here to keep track of the last deploy.
                 ) for schema in schemas + [self.FULL_DEPLOY]
             ],
             # Do the swap (creating the destination if it doesn't already exist).
@@ -186,7 +186,7 @@ class SnowflakeWarehouse(Warehouse):
         # Update manifest for this project
         self._execute_sql("UPDATE live_deploys SET manifest = %s WHERE project_name = %s and commit_hash = %s", (manifest, project_name, commit_hash))
 
-    def _fetch_manifest(self, project_name:str, commit_hash: str):
+    def _fetch_manifest(self, project_name: str, commit_hash: str):
         result = self._execute_sql("SELECT commit_hash, manifest FROM live_deploys WHERE project_name = %s", project_name)
         if not result:
             raise click.ClickException(f"No deploy for {project_name!r}. Run deploy first.")
@@ -250,7 +250,7 @@ class SnowflakeWarehouse(Warehouse):
     def clone_schema(self, schema, destination, source):
         self._execute_sql(f"create or replace schema {destination}.{self.schema}_{schema} CLONE {source}.{self.schema}_{schema}")
 
-    def release_lock(self, target: str, lock_key:str):
+    def release_lock(self, target: str, lock_key: str):
         # SHOULD THIS BE A CONTEXT MANAGER?
         self._execute_sql("DELETE FROM database_locks WHERE target_database = %s and process_id = %s", (target, lock_key))
         logger.info("Lock released on %r", target)
@@ -261,14 +261,14 @@ class SnowflakeWarehouse(Warehouse):
         lock_key = self.acquire_lock(target=target, ttl_minutes=ttl_minutes)
         if not lock_key:
             raise click.ClickException(
-                "Unable to lock {0!r}. Someone else has the lock. Try again later.".format(schedule.build_config["database"])
+                f"Unable to lock {target!r}. Someone else has the lock. Try again later."
             )
         try:
             yield
         finally:
             self.release_lock(target, lock_key)
 
-    def get_last_refreshes(self, project_name:str):
+    def get_last_refreshes(self, project_name: str):
         results = self._execute_sql("SELECT schema, build_timestamp FROM last_refresh WHERE project_name = %s", project_name)
         return {
             schema: last_refresh for schema, last_refresh in results

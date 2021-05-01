@@ -38,12 +38,11 @@ class Warehouse(ABC):
     @abstractmethod
     def deploy(self, project_name: str, commit_hash: str, manifest: str, build_db: str, deploy_db: str):
         ...
-    
+
     @abstractmethod
     def acquire_lock(self, target: str, ttl_minutes=1):
         ...
-    
+
     @abstractmethod
     def release_lock(self, target: str):
         ...
-

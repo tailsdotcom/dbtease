@@ -5,7 +5,7 @@ import datetime
 from crontab import CronTab
 
 
-def refresh_due(schedule:str, last_refresh: datetime.datetime) -> bool:
+def refresh_due(schedule: str, last_refresh: datetime.datetime) -> bool:
     """Work out whether a refresh is due based on cron and last refresh."""
     if not last_refresh:
         return True

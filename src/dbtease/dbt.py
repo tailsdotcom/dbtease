@@ -77,7 +77,7 @@ class DbtProject(YamlFileObject):
         profiles_dir = os.path.expanduser(profiles_dir)
         parent_profiles = DbtProfiles.from_path(path=profiles_dir, profile=self.profile_name)
         return parent_profiles.generate_patched_yml(database=database, target=target)
-    
+
     def get_default_database(self, profiles_dir="~/.dbt/", target=None):
         profiles_dir = os.path.expanduser(profiles_dir)
         parent_profiles = DbtProfiles.from_path(path=profiles_dir, profile=self.profile_name)
