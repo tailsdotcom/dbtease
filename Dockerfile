@@ -4,4 +4,4 @@ RUN pip install pipenv
 
 COPY . .
 
-RUN pipenv install --dev
+RUN pipenv install --dev --system
