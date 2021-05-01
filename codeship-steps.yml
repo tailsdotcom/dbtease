@@ -1,6 +1,6 @@
 - name: Python Linting
-  service: basic_dbtease
+  service: basic-dbtease
   command: flake8
 - name: Python Typing
-  service: basic_dbtease
+  service: basic-dbtease
   command: mypy src
