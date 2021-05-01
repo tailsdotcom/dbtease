@@ -202,7 +202,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
-    if status_dict["dirty_tree"] and False:  # NOTE: For testing only. REMOVE "and False" for production.
+    if status_dict["dirty_tree"]:
         raise click.UsageError(
             "Uncommitted Git changes. Please "
             "commit, stash or discard changes to run deploy."
@@ -224,59 +224,56 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         )
         defer_to_state = False
     else:
+        click.secho(
+            "ATTEMPTING PARTIAL DEPLOY",
+            fg='cyan'
+        )
         defer_to_state = True
 
     # Do the deploy.
-    if defer_to_state:
+    # Set up our config files
+    with ConfigContext(file_dict={
+        # Use build context first
+        "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.build_config["database"])
+    }) as ctx:
+        profile_args = ["--profiles-dir", str(ctx)]
+        # if we're going to upload docs, check we have access.
+        if schedule.filestore:
+            if not schedule.filestore.check_access():
+                raise click.ClickException("Access check to filestore failed. Make sure you have access.")
+        # dbt deps
+        cli_run_dbt_command(["deps"])
+        # Deploy
+        # Try to get a lock on the build database
+        click.secho("Acquiring Build Lock", fg='blue')
+        with schedule.warehouse.lock(schedule.build_config["database"]):
+            if defer_to_state:
+                # NOTE: Although we only need to update the changed models, we still have to
+                # deploy monolithically do make sure dependencies don't break.
+                # We clone the existing deployment. No need to rely on state, because we'll rebuild
+                # whole schemas, but we do need the downstream schemas to exist.
+                # NOTE: This means we shouldn't update the "last_deployed" timestamp on all of the
+                # schemas, only the ones we rebuilt.
 
-        # WE NEED TO WORK OUT HOW TO HANDLE SEEDS!
-
-        # Clone what we need to...
-
-        # Always use --fail-fast
-        plan = [
-            "acquire lock on build database",
-            "clone",  # Clone schemas that have been modified. (including seed). [unless we can't defer to state]
-            "seed",  # use state:modified if we can.
-            "snapshot",  # currently this is at the start - is that a good thing?
-            "run --full-refresh",  # use state:modified+ if we can.
-            "run incremental",  # use scheme selectors if available otherwise skip. NB: no need to full refresh tables we haven't changed if we can just do incremental on them.
-            "test",  # only test once during deploy cycle - assume we tested properly the first during the PR phase.
-            "docs",
-            "perms",
-            "acquire lock on deploy database",
-            "deploy",  # as in swap database. If we only need to deploy some schemas, just do them. The others were deferred to state and so won't be complete.
-            "update last deploy marker for schema",  # importantly before we release lock
-            "release lock on both databases",
-            "deploy",  # as in update terraform? {or is that seperate}
-            "upload artifacts."  # (inluding docs)
-        ]
-
-        # Stepwise deploy
-        raise NotImplementedError("dbtease partial deploy is not implemented yet.")
-    else:
-        # Full deploy
-
-        # Set up our config files
-        config_files = {
-            # Use build context first
-            "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.build_config["database"])
-        }
-        with ConfigContext(file_dict=config_files) as ctx:
-            profile_args = ["--profiles-dir", str(ctx)]
-            # if we're going to upload docs, check we have access.
-            if schedule.filestore:
-                if not schedule.filestore.check_access():
-                    raise click.ClickException("Access check to filestore failed. Make sure you have access.")
-            # dbt deps
-            cli_run_dbt_command(["deps"])            
-            # Try to get a lock on the build database
-            click.secho("Acquiring Build Lock", fg='blue')
-            with schedule.warehouse.lock(schedule.build_config["database"]):
                 # make sure we've got a database to work with.
-                # NOTE: Requires particular macros. Should make dbt package to install.
-                # Or should this actually be in build into dbtease? (probably the latter).
-                # This whould involve a wipe!
+                click.secho("Cloning live database", fg='blue')
+                schedule.warehouse.create_wipe_db(
+                    schedule.build_config["database"],
+                    source=schedule.deploy_config["database"]
+                )
+
+                # Build each schema individually, but deploy in one transaction.
+                for schema_name in status_dict["deploy_order"]:
+                    click.secho(f"BUILDING: {schema_name}", fg='cyan')
+                    schema = schedule.get_schema(schema_name)
+                    # run dbt seed
+                    cli_run_dbt_command(["seed", "--select", schema.selector()] + profile_args)
+                    # run dbt build --full-refresh
+                    cli_run_dbt_command(["run", "--models", schema.selector(), "--full-refresh", "--fail-fast"] + profile_args)
+                    # run dbt test
+                    cli_run_dbt_command(["test", "--models", schema.selector()] + profile_args)
+            else:     
+                # make sure we've got a database to work with.
                 click.secho("Initialising build database", fg='blue')
                 schedule.warehouse.create_wipe_db(schedule.build_config["database"])
                 # run dbt seed
@@ -289,40 +286,42 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
                 # MAYBE (or maybe just test run): run dbt build (for incremental)
                 # MAYBE (or maybe just test run): run dbt test
                 
-                # Get lock on deploy DB
-                click.secho("Acquiring Deploy Lock", fg='blue')
-                with schedule.warehouse.lock(schedule.deploy_config["database"]):
-                    # Deploy
-                    click.secho("Deploying...", fg='blue')
-                    schedule.warehouse.deploy(
-                        project_name=schedule.name,
-                        commit_hash=current_hash,
-                        # NB, no manifest on deploy. A NULL Manifest means other clients should wait briefly for it!
-                        build_db=schedule.build_config["database"],
-                        deploy_db=schedule.deploy_config["database"],
-                    )
+            # Get lock on deploy DB
+            click.secho("Acquiring Deploy Lock", fg='blue')
+            with schedule.warehouse.lock(schedule.deploy_config["database"]):
+                # Deploy
+                click.secho("Deploying...", fg='blue')
+                schedule.warehouse.deploy(
+                    project_name=schedule.name,
+                    commit_hash=current_hash,
+                    # NB, no manifest on deploy. A NULL Manifest means other clients should wait briefly for it!
+                    build_db=schedule.build_config["database"],
+                    deploy_db=schedule.deploy_config["database"],
+                )
 
-                    # Update to deploy context
-                    click.secho("Updating to deploy context", fg='blue')
-                    with ctx.patch_files({
-                        "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.deploy_config["database"])
-                    }):
-                        # dbt docs (which also generates manifest). NB: We're using the DEPLOY context so the references work.
-                        cli_run_dbt_command(["docs", "generate"])
-                        # Stash the docs and the manifest
-                        ctx.stash_files("target/manifest.json", "target/catalog.json", "target/index.html")
-                        # Get manifest
-                        manifest = ctx.read_file("manifest.json")
-                        # Build docs and update manifest.
-                        click.secho("Updating Manifest.", fg='blue')
-                        schedule.warehouse.deploy_manifest(
-                            project_name=schedule.name,
-                            commit_hash=current_hash,
-                            manifest=manifest,
-                        )
-            # Upload docs here.
-            if schedule.filestore:
-                schedule.filestore.upload_files("target/manifest.json", "target/catalog.json", "target/index.html")
+        # Update to deploy context to build and update docs.
+        click.secho("Updating to deploy context", fg='blue')
+        with ctx.patch_files({
+            "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.deploy_config["database"])
+        }):
+            # dbt docs (which also generates manifest). NB: We're using the DEPLOY context so the references work.
+            # For the same reason we still need profile args.
+            cli_run_dbt_command(["docs", "generate"] + profile_args)
+            # Stash the docs and the manifest
+            ctx.stash_files("target/manifest.json", "target/catalog.json", "target/index.html")
+            # Get manifest
+            manifest = ctx.read_file("manifest.json")
+            # Build docs and update manifest.
+            click.secho("Updating Manifest.", fg='blue')
+            schedule.warehouse.deploy_manifest(
+                project_name=schedule.name,
+                commit_hash=current_hash,
+                manifest=manifest,
+            )
+        # Upload docs here.
+        if schedule.filestore:
+            schedule.filestore.upload_files("target/manifest.json", "target/catalog.json", "target/index.html")
+    click.secho("DONE", fg='green')
 
 if __name__ == '__main__':
     cli()

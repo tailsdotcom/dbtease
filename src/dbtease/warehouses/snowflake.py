@@ -178,8 +178,11 @@ class SnowflakeWarehouse(Warehouse):
             logger.info("Failed lock acquisition on %r", target)
             return None
 
-    def create_wipe_db(self, db_name):
-        self._execute_sql(f"create or replace database {db_name}")
+    def create_wipe_db(self, db_name, source=None):
+        if source:
+            self._execute_sql(f"create or replace database {db_name} CLONE {source}")
+        else:
+            self._execute_sql(f"create or replace database {db_name}")
 
     def release_lock(self, target: str, lock_key:str):
         # SHOULD THIS BE A CONTEXT MANAGER?

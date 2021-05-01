@@ -2,6 +2,7 @@
 
 import os.path
 import networkx as nx
+import logging
 
 from dbtease.schema import DbtSchema
 from dbtease.warehouses import get_warehouse_from_target
@@ -9,6 +10,8 @@ from dbtease.dbt import DbtProfiles, DbtProject
 from dbtease.git import get_git_state
 from dbtease.common import YamlFileObject
 from dbtease.filestores import get_filestore_from_config
+
+logger = logging.getLogger("dbtease.schedule")
 
 
 class NotDagException(ValueError):
@@ -31,9 +34,12 @@ class DbtSchedule(YamlFileObject):
         self.deploy_config = deploy_config or {}
         self.filestore = filestore
 
+    def get_schema(self, schema):
+        return self.graph.nodes[schema]["schema"]
+
     def iter_schemas(self):
         for node_name in self.graph.nodes:
-            yield node_name, self.graph.nodes[node_name]["schema"]
+            yield node_name, self.get_schema(node_name)
 
     def _iter_affected_schemas(self, paths):
         for _, schema in self.iter_schemas():

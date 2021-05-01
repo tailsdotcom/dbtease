@@ -6,13 +6,15 @@ import os.path
 class DbtSchema:
     def __init__(
         self, name, paths, schedule=None,
-        depends_on=None, materialized=False
+        depends_on=None, materialized=False,
+        build=None
     ):
         self.name = name
         self.paths = paths
         self.schedule = schedule
         self.depends_on = depends_on
         self.materialized = materialized
+        self.build_config = build or {}
 
     def __repr__(self):
         return f"<DbtSchema: {self.name}>"
@@ -26,6 +28,10 @@ class DbtSchema:
                 if os.path.realpath(path).startswith(self_path)
             )
         return matched_paths
+    
+    def selector(self):
+        selectors = ["path:" + path for path in self.paths]
+        return ','.join(selectors)
 
     @classmethod
     def from_dict(cls, name, config):
