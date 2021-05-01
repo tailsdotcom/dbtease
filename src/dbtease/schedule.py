@@ -8,6 +8,7 @@ from dbtease.warehouses import get_warehouse_from_target
 from dbtease.dbt import DbtProfiles, DbtProject
 from dbtease.git import get_git_state
 from dbtease.common import YamlFileObject
+from dbtease.filestores import get_filestore_from_config
 
 
 class NotDagException(ValueError):
@@ -19,7 +20,7 @@ class DbtSchedule(YamlFileObject):
 
     default_file_name = "dbt_schedule.yml"
 
-    def __init__(self, name, graph, warehouse, project, project_dir=".", git_path=".", build_config=None, deploy_config=None):
+    def __init__(self, name, graph, warehouse, project, project_dir=".", git_path=".", build_config=None, deploy_config=None, filestore=None):
         self.name = name
         self.graph = graph
         self.warehouse = warehouse
@@ -28,6 +29,7 @@ class DbtSchedule(YamlFileObject):
         self.project_dir = project_dir
         self.build_config = build_config or {}
         self.deploy_config = deploy_config or {}
+        self.filestore = filestore
 
     def iter_schemas(self):
         for node_name in self.graph.nodes:
@@ -117,7 +119,7 @@ class DbtSchedule(YamlFileObject):
         }
 
     @classmethod
-    def from_dict(cls, config, warehouse=None, target_dict=None, project=None, project_dir=".", target_name=None, **kwargs):
+    def from_dict(cls, config, warehouse=None, target_dict=None, project=None, project_dir=".", target_name=None, filestore=None, **kwargs):
         """Load a schedule from a dict."""
         # Set up the graph
         dag = nx.DiGraph()
@@ -149,6 +151,10 @@ class DbtSchedule(YamlFileObject):
 
             warehouse = get_warehouse_from_target(target_dict)
 
+        if not filestore:
+            if "docs" in config:
+                filestore = get_filestore_from_config(config["docs"])
+
         # Config kwargs
         schedule_kwargs = {
             "name": config["deployment"],
@@ -156,6 +162,7 @@ class DbtSchedule(YamlFileObject):
             "warehouse": warehouse,
             "project": project,
             "project_dir": project_dir,
+            "filestore": filestore
         }
         # Use the git path if provided.
         if "git_path" in config:

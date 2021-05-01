@@ -264,6 +264,10 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         }
         with ConfigContext(file_dict=config_files) as ctx:
             profile_args = ["--profiles-dir", str(ctx)]
+            # if we're going to upload docs, check we have access.
+            if schedule.filestore:
+                if not schedule.filestore.check_access():
+                    raise click.ClickException("Access check to filestore failed. Make sure you have access.")
             # dbt deps
             cli_run_dbt_command(["deps"])            
             # Try to get a lock on the build database
@@ -317,11 +321,8 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
                             manifest=manifest,
                         )
             # Upload docs here.
-
-            # We should check that the user currently has access to the S3 destination before building (if we're using S3 as a backend).
-            # Maybe assume manifest in snowflake.
-            # Otherwise this could get sticky.
-
+            if schedule.filestore:
+                schedule.filestore.upload_files("target/manifest.json", "target/catalog.json", "target/index.html")
 
 if __name__ == '__main__':
     cli()
