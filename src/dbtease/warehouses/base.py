@@ -25,6 +25,8 @@ class Sql:
 class Warehouse(ABC):
     """Base interactions with warehouse."""
 
+    FULL_DEPLOY = "<full-deploy>"
+
     @classmethod
     def from_target(cls, target_dict: Dict):
         return cls(**target_dict)

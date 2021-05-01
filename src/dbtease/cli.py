@@ -49,6 +49,9 @@ def status(project_dir, profiles_dir, schedule_dir):
         ("Current Hash", status_dict["current_hash"]),
         ("Uncommitted Changes", status_dict["dirty_tree"]),
         ("Deployment Plan", ", ".join(status_dict["deploy_order"])),
+        ("Redeploy Due", status_dict["redeploy_due"]),
+        ("Refreshes Due", ", ".join(status_dict["refreshes_due"])),
+        ("Deployment Plan", ", ".join(status_dict["deploy_order"])),
     ]
     for label, value in config_pairs:
         click.echo(f"{label:22} - {value}")
@@ -108,48 +111,32 @@ def test():
     raise NotImplementedError("dbtease test is not implemented yet.")
 
 
-@cli.command()
-@click.option('--project-dir', default=".")
-@click.option('--profiles-dir', default="~/.dbt/")
-@click.option('--schedule-dir', default=None)
-@click.option('-s', '--schema', default=None)
-def refresh(project_dir, profiles_dir, schedule_dir, schema):
-    """Runs an appropriate refresh of the existing state."""
-    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir, deploy=False)
-    # Validate state
-    deployed_hash = status_dict["deployed_hash"]
-    current_hash = status_dict["current_hash"]
-    if deployed_hash != current_hash:
-        raise click.UsageError(
-            f"Deployed hash is {deployed_hash}. "
-            "Return to that commit to run refresh."
-        )
-    if status_dict["dirty_tree"]:
-        raise click.UsageError(
-            "Uncommitted Git changes. Please "
-            "stash or discard changes to run refresh."
-        )
+def cli_run_command(cmd):
+    click.secho(
+        f"Running: {' '.join(cmd)}",
+        fg='bright_blue'
+    )
+    retcode, stdoutlines,stderrlines = run_shell_command(cmd, echo=click.echo)
+    if retcode != 0:
+        # TODO: Better error message here.
+        for errline in stderrlines:
+            click.echo(errline)
+        raise click.ClickException("Command Failed!")
+    return retcode, stdoutlines
 
-    if schema:
-        schema_options = {name for name, _ in schedule.iter_schemas()}
-        if schema not in schema_options:
-            raise click.UsageError(
-                f"Provided schema {schema!r} not found in "
-                "schedule file."
-            )
-        deploy_plan = [schema]
-    else:
-        deploy_plan = status_dict["deploy_order"]
-    click.secho(f"Deploying schemas: {deploy_plan!r}", fg='cyan')
 
-    # Refresh cycle.
+def cli_run_dbt_command(cmd):
+    try:
+        retcode, stdoutlines = cli_run_command(["dbt"] + cmd)
+    except FileNotFoundError:
+        raise click.UsageError("ERROR: dbt not found. Please install dbt.")
+    return retcode, stdoutlines
 
-    # Fetch manifest of current live build
-    manifest = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
 
+def schemawise_refresh(deploy_plan, schedule, manifest, current_hash):
     # dbt deps
     cli_run_dbt_command(["deps"])
-
+    # Iterate Schemas to Deploy
     for schema_name in deploy_plan:
         click.secho(f"BUILDING: {schema_name}", fg='cyan')
         schema = schedule.get_schema(schema_name)
@@ -192,70 +179,9 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
                         deploy_db=schedule.deploy_config["database"],
                         build_timestamp=build_timestamp,
                     )
-    click.secho("DONE", fg='green')
 
 
-def cli_run_command(cmd):
-    click.secho(
-        f"Running: {' '.join(cmd)}",
-        fg='bright_blue'
-    )
-    retcode, stdoutlines,stderrlines = run_shell_command(cmd, echo=click.echo)
-    if retcode != 0:
-        # TODO: Better error message here.
-        for errline in stderrlines:
-            click.echo(errline)
-        raise click.ClickException("Command Failed!")
-    return retcode, stdoutlines
-
-
-def cli_run_dbt_command(cmd):
-    try:
-        retcode, stdoutlines = cli_run_command(["dbt"] + cmd)
-    except FileNotFoundError:
-        raise click.UsageError("ERROR: dbt not found. Please install dbt.")
-    return retcode, stdoutlines
-
-
-@cli.command()
-@click.option('--project-dir', default=".")
-@click.option('--profiles-dir', default="~/.dbt/")
-@click.option('--schedule-dir', default=None)
-@click.option('-f', '--force', is_flag=True, help="Force a full deploy cycle.")
-def deploy(project_dir, profiles_dir, schedule_dir, force):
-    """Attempt to deploy the current commit as the new live version."""
-    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
-    # Validate state
-    deployed_hash = status_dict["deployed_hash"]
-    current_hash = status_dict["current_hash"]
-    if status_dict["dirty_tree"]:
-        raise click.UsageError(
-            "Uncommitted Git changes. Please "
-            "commit, stash or discard changes to run deploy."
-        )
-    if deployed_hash == current_hash and not force:
-        raise click.UsageError(
-            "This commit is already deployed. To refresh, "
-            "run `dbtease refresh`."
-        )
-
-    if not deployed_hash or force:
-        if force:
-            full_reason = "Forcing a full deploy."
-        else:
-            full_reason = "No current deployment. This forces a full deploy."
-        click.secho(
-            f"WARNING: {full_reason} In a large project this may take some time...",
-            fg='yellow'
-        )
-        defer_to_state = False
-    else:
-        click.secho(
-            "ATTEMPTING PARTIAL DEPLOY",
-            fg='cyan'
-        )
-        defer_to_state = True
-
+def database_deploy(schedule, current_hash, defer_to_state):
     # Do the deploy.
     build_timestamp = datetime.datetime.utcnow()
     # Set up our config files
@@ -350,6 +276,101 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         # Upload docs here.
         if schedule.filestore:
             schedule.filestore.upload_files("target/manifest.json", "target/catalog.json", "target/index.html")
+
+
+@cli.command()
+@click.option('--project-dir', default=".")
+@click.option('--profiles-dir', default="~/.dbt/")
+@click.option('--schedule-dir', default=None)
+@click.option('-s', '--schema', default=None)
+def refresh(project_dir, profiles_dir, schedule_dir, schema):
+    """Runs an appropriate refresh of the existing state."""
+    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir, deploy=False)
+    # Validate state
+    deployed_hash = status_dict["deployed_hash"]
+    current_hash = status_dict["current_hash"]
+    if deployed_hash != current_hash:
+        raise click.UsageError(
+            f"Deployed hash is {deployed_hash}. "
+            "Return to that commit to run refresh."
+        )
+    if status_dict["dirty_tree"]:
+        raise click.UsageError(
+            "Uncommitted Git changes. Please "
+            "stash or discard changes to run refresh."
+        )
+
+    if schema:
+        schema_options = {name for name, _ in schedule.iter_schemas()}
+        if schema not in schema_options:
+            raise click.UsageError(
+                f"Provided schema {schema!r} not found in "
+                "schedule file."
+            )
+        deploy_plan = [schema]
+    else:
+        deploy_plan = status_dict["refreshes_due"]
+    
+    if not deploy_plan:
+        click.secho("No refreshes due...", fg='green')
+    else:
+        # Fetch manifest of current live build
+        manifest = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
+        # If redeploy is due, then do a redeploy.
+        if status_dict["redeploy_due"]:
+            click.secho(
+                f"WARNING: Full redeploy is due. This may take some time on a large project.",
+                fg='yellow'
+            )
+            database_deploy(schedule, current_hash, defer_to_state=False)
+        else:
+            click.secho(f"Refreshing schemas: {deploy_plan!r}", fg='cyan')
+            # Refresh cycle.
+            schemawise_refresh(deploy_plan, schedule, manifest, current_hash)
+    click.secho("DONE", fg='green')
+
+
+@cli.command()
+@click.option('--project-dir', default=".")
+@click.option('--profiles-dir', default="~/.dbt/")
+@click.option('--schedule-dir', default=None)
+@click.option('-f', '--force', is_flag=True, help="Force a full deploy cycle.")
+def deploy(project_dir, profiles_dir, schedule_dir, force):
+    """Attempt to deploy the current commit as the new live version."""
+    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
+    # Validate state
+    deployed_hash = status_dict["deployed_hash"]
+    current_hash = status_dict["current_hash"]
+    if status_dict["dirty_tree"]:
+        raise click.UsageError(
+            "Uncommitted Git changes. Please "
+            "commit, stash or discard changes to run deploy."
+        )
+    if deployed_hash == current_hash and not force:
+        raise click.UsageError(
+            "This commit is already deployed. To refresh, "
+            "run `dbtease refresh`."
+        )
+
+    if not deployed_hash or force:
+        if force:
+            full_reason = "Forcing a full deploy."
+        else:
+            full_reason = "No current deployment. This forces a full deploy."
+        click.secho(
+            f"WARNING: {full_reason} In a large project this may take some time...",
+            fg='yellow'
+        )
+        defer_to_state = False
+    else:
+        click.secho(
+            "ATTEMPTING PARTIAL DEPLOY",
+            fg='cyan'
+        )
+        defer_to_state = True
+
+    # Do the deploy.
+    database_deploy(schedule, current_hash, defer_to_state)
     click.secho("DONE", fg='green')
 
 if __name__ == '__main__':

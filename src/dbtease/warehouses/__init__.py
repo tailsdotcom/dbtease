@@ -1,6 +1,5 @@
 """Warehouse connections.
 
-
 Eventually we should do something smart here to only load the
 ones we can given the installed libraries.
 

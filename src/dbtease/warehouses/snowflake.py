@@ -150,7 +150,8 @@ class SnowflakeWarehouse(Warehouse):
                         when not matched then insert (project_name, schema, build_timestamp) values (b.project_name, b.schema, b.build_timestamp)
                     """,
                     (project_name, schema, build_timestamp.isoformat())
-                ) for schema in schemas
+                # We add the full deploy flag here to keep track of the last deploy.
+                ) for schema in schemas + [self.FULL_DEPLOY]
             ],
             # Do the swap (creating the destination if it doesn't already exist).
             f"CREATE DATABASE IF NOT EXISTS {deploy_db}",
@@ -264,3 +265,9 @@ class SnowflakeWarehouse(Warehouse):
             yield
         finally:
             self.release_lock(target, lock_key)
+
+    def get_last_refreshes(self, project_name:str):
+        results = self._execute_sql("SELECT schema, build_timestamp FROM last_refresh WHERE project_name = %s", project_name)
+        return {
+            schema: last_refresh for schema, last_refresh in results
+        }

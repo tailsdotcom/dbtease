@@ -2,6 +2,8 @@
 
 import os.path
 
+from dbtease.cron import refresh_due
+
 
 class DbtSchema:
     def __init__(
@@ -16,6 +18,8 @@ class DbtSchema:
         self.materialized = materialized
         self.build_config = build or {}
         self.schemas = schemas or [name]
+        if self.materialized and not self.schedule:
+            raise ValueError(f"Schema {self.name} is materialized but has no schedule!")
 
     def __repr__(self):
         return f"<DbtSchema: {self.name}>"
@@ -33,6 +37,12 @@ class DbtSchema:
     def selector(self):
         selectors = ["path:" + path for path in self.paths]
         return ' '.join(selectors)
+
+    def refresh_due(self, last_refresh):
+        """Work out whether a refresh is due based on cron and last refresh."""
+        if not self.schedule:
+            return False
+        return refresh_due(self.schedule, last_refresh)
 
     @classmethod
     def from_dict(cls, name, config):

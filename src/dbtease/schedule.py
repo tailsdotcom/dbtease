@@ -11,6 +11,7 @@ from dbtease.dbt import DbtProfiles, DbtProject
 from dbtease.git import get_git_state
 from dbtease.common import YamlFileObject
 from dbtease.filestores import get_filestore_from_config
+from dbtease.cron import refresh_due
 
 logger = logging.getLogger("dbtease.schedule")
 
@@ -24,7 +25,7 @@ class DbtSchedule(YamlFileObject):
 
     default_file_name = "dbt_schedule.yml"
 
-    def __init__(self, name, graph, warehouse, project, project_dir=".", git_path=".", build_config=None, deploy_config=None, filestore=None):
+    def __init__(self, name, graph, warehouse, project, project_dir=".", git_path=".", build_config=None, deploy_config=None, filestore=None, redeploy_schedule=None):
         self.name = name
         self.graph = graph
         self.warehouse = warehouse
@@ -34,6 +35,7 @@ class DbtSchedule(YamlFileObject):
         self.build_config = build_config or {}
         self.deploy_config = deploy_config or {}
         self.filestore = filestore
+        self.redeploy_schedule = redeploy_schedule
 
     def get_schema(self, schema):
         try:
@@ -74,6 +76,13 @@ class DbtSchedule(YamlFileObject):
             name for name, schema in self.iter_schemas()
             if schema.materialized
         )
+    
+    def _determine_deploy_order(self, schemas):
+        deploy_order = []
+        for node in nx.topological_sort(self.graph):
+            if node in schemas:
+                deploy_order.append(node)
+        return deploy_order
 
     def _plan_from_changed_files(self, changed_files, deploy=True):
         """Generate a plan of attack from changed files."""
@@ -92,22 +101,42 @@ class DbtSchedule(YamlFileObject):
         # NOTE: This is not necessarily deterministic in the case
         # that nodes have the same level in the tree, but I don't think
         # that really matters at this stage.
-        deploy_order = []
-        for node in nx.topological_sort(self.graph):
-            if node in changed_schemas or node in deploy_schemas:
-                deploy_order.append(node)
         return {
             "unmatched_files": unmatched_files,
             "matched_files": schema_files,
             "changed_schemas": changed_schemas,
             "dependent_deploy_schemas": deploy_schemas,
-            "deploy_order": deploy_order
+            "deploy_order": self._determine_deploy_order(
+                changed_schemas | deploy_schemas
+            )
+        }
+
+    def redeploy_due(self, last_refresh):
+        """Work out whether a refresh is due based on cron and last refresh."""
+        # Only redeploy at all if this is configured.
+        if not self.redeploy_schedule:
+            return False
+        return refresh_due(self.redeploy_schedule, last_refresh)
+
+    def evaluate_schedules(self):
+        last_refreshes = self.warehouse.get_last_refreshes(self.name)
+        last_redeploy = last_refreshes.get(self.warehouse.FULL_DEPLOY, None)
+        refresh_due_schemas = [
+            schema_name
+            for schema_name, schema in self.iter_schemas()
+            if schema.refresh_due(last_refreshes.get(schema_name, None))
+        ]
+        return {
+            "redeploy_due": self.redeploy_due(last_redeploy),
+            "refreshes_due": self._determine_deploy_order(refresh_due_schemas)
         }
 
     def status_dict(self, deploy=True):
         """Determine the current status of the repository."""
         # Load state
         deployed_hash = self.warehouse.get_current_deployed(self.name)
+        # Evaluate refreshes due
+        refreshes_due = self.evaluate_schedules()
         # Introspect git status
         git_status = get_git_state(deployed_hash=deployed_hash, repo_dir=self.git_path)
         # Make a plan from the changed files
@@ -125,6 +154,7 @@ class DbtSchedule(YamlFileObject):
             "current_hash": git_status["commit_hash"],
             "dirty_tree": git_status["dirty"],
             "changed_files": changed_files,
+            **refreshes_due,
             **plan_dict
         }
 
@@ -172,7 +202,7 @@ class DbtSchedule(YamlFileObject):
             "warehouse": warehouse,
             "project": project,
             "project_dir": project_dir,
-            "filestore": filestore
+            "filestore": filestore,
         }
         # Use the git path if provided.
         if "git_path" in config:
@@ -183,5 +213,9 @@ class DbtSchedule(YamlFileObject):
             schedule_kwargs["deploy_config"] = config["deploy"]
         if "build" in config:
             schedule_kwargs["build_config"] = config["build"]
+
+        # Add redeploy schedule if present
+        if "redeploy_schedule" in config:
+            schedule_kwargs["redeploy_schedule"] = config["redeploy_schedule"]
 
         return cls(**schedule_kwargs)
