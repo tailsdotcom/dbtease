@@ -170,9 +170,15 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
 
 
 def cli_run_command(cmd):
-    retcode, stdoutlines = run_shell_command(cmd)
+    click.secho(
+        f"Running: {' '.join(cmd)}",
+        fg='blue'
+    )
+    retcode, stdoutlines,stderrlines = run_shell_command(cmd, echo=click.echo)
     if retcode != 0:
         # TODO: Better error message here.
+        for errline in stderrlines:
+            click.echo(errline)
         raise click.ClickException("Command Failed!")
     return retcode, stdoutlines
 
@@ -189,7 +195,8 @@ def cli_run_dbt_command(cmd):
 @click.option('--project-dir', default=".")
 @click.option('--profiles-dir', default="~/.dbt/")
 @click.option('--schedule-dir', default=None)
-def deploy(project_dir, profiles_dir, schedule_dir):
+@click.option('-f', '--force', is_flag=True, help="Force a full deploy cycle.")
+def deploy(project_dir, profiles_dir, schedule_dir, force):
     """Attempt to deploy the current commit as the new live version."""
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
     # Validate state
@@ -200,19 +207,19 @@ def deploy(project_dir, profiles_dir, schedule_dir):
             "Uncommitted Git changes. Please "
             "commit, stash or discard changes to run deploy."
         )
-    if deployed_hash == current_hash:
+    if deployed_hash == current_hash and not force:
         raise click.UsageError(
             "This commit is already deployed. To refresh, "
             "run `dbtease refresh`."
         )
 
-    if not deployed_hash:
+    if not deployed_hash or force:
+        if force:
+            full_reason = "Forcing a full deploy."
+        else:
+            full_reason = "No current deployment. This forces a full deploy."
         click.secho(
-            (
-                "WARNING: No currently deployed hash, this will mean "
-                "a full deploy cycle. In a large project this "
-                "may take some time..."
-            ),
+            f"WARNING: {full_reason} In a large project this may take some time...",
             fg='yellow'
         )
         defer_to_state = False
@@ -221,6 +228,30 @@ def deploy(project_dir, profiles_dir, schedule_dir):
 
     # Do the deploy.
     if defer_to_state:
+
+        # WE NEED TO WORK OUT HOW TO HANDLE SEEDS!
+
+        # Clone what we need to...
+
+        # Always use --fail-fast
+        plan = [
+            "acquire lock on build database",
+            "clone",  # Clone schemas that have been modified. (including seed). [unless we can't defer to state]
+            "seed",  # use state:modified if we can.
+            "snapshot",  # currently this is at the start - is that a good thing?
+            "run --full-refresh",  # use state:modified+ if we can.
+            "run incremental",  # use scheme selectors if available otherwise skip. NB: no need to full refresh tables we haven't changed if we can just do incremental on them.
+            "test",  # only test once during deploy cycle - assume we tested properly the first during the PR phase.
+            "docs",
+            "perms",
+            "acquire lock on deploy database",
+            "deploy",  # as in swap database. If we only need to deploy some schemas, just do them. The others were deferred to state and so won't be complete.
+            "update last deploy marker for schema",  # importantly before we release lock
+            "release lock on both databases",
+            "deploy",  # as in update terraform? {or is that seperate}
+            "upload artifacts."  # (inluding docs)
+        ]
+
         # Stepwise deploy
         raise NotImplementedError("dbtease partial deploy is not implemented yet.")
     else:
@@ -228,89 +259,68 @@ def deploy(project_dir, profiles_dir, schedule_dir):
 
         # Set up our config files
         config_files = {
+            # Use build context first
             "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.build_config["database"])
         }
-        with ConfigContext(file_dict=config_files) as config_path:
-            print("Config Path:", config_path)
-            profile_args = ["--profiles-dir", config_path]
+        with ConfigContext(file_dict=config_files) as ctx:
+            profile_args = ["--profiles-dir", str(ctx)]
             # dbt deps
-            cli_run_dbt_command(["deps"])
-            # make sure we've got a database to work with.
+            cli_run_dbt_command(["deps"])            
+            # Try to get a lock on the build database
+            click.secho("Acquiring Build Lock", fg='blue')
+            with schedule.warehouse.lock(schedule.build_config["database"]):
+                # make sure we've got a database to work with.
+                # NOTE: Requires particular macros. Should make dbt package to install.
+                # Or should this actually be in build into dbtease? (probably the latter).
+                # This whould involve a wipe!
+                click.secho("Initialising build database", fg='blue')
+                schedule.warehouse.create_wipe_db(schedule.build_config["database"])
+                # run dbt seed
+                cli_run_dbt_command(["seed"] + profile_args)
+                # run dbt snapshot?
+                # run dbt build --full-refresh
+                cli_run_dbt_command(["run", "--full-refresh", "--fail-fast"] + profile_args)
+                # run dbt test
+                cli_run_dbt_command(["test"] + profile_args)
+                # MAYBE (or maybe just test run): run dbt build (for incremental)
+                # MAYBE (or maybe just test run): run dbt test
+                
+                # Get lock on deploy DB
+                click.secho("Acquiring Deploy Lock", fg='blue')
+                with schedule.warehouse.lock(schedule.deploy_config["database"]):
+                    # Deploy
+                    click.secho("Deploying...", fg='blue')
+                    schedule.warehouse.deploy(
+                        project_name=schedule.name,
+                        commit_hash=current_hash,
+                        # NB, no manifest on deploy. A NULL Manifest means other clients should wait briefly for it!
+                        build_db=schedule.build_config["database"],
+                        deploy_db=schedule.deploy_config["database"],
+                    )
 
-            # Try to get a lock.
-            build_db_lock = schedule.warehouse.acquire_lock(schedule.build_config["database"])
-            if not build_db_lock:
-                raise click.UsageError(
-                    "Unable to lock {0!r}. Someone else has the lock. Try again later.".format(schedule.build_config["database"])
-                )
-            else:
-                print(f"Acquired lock: {build_db_lock}")
-
-            # NOTE: Requires particular macros. Should make dbt package to install.
-            # Or should this actually be in build into dbtease? (probably the latter).
-            # This whould involve a wipe!
-            cli_run_dbt_command(["run-operation", "create_build_db"] + profile_args)
-            # run dbt seed
-            cli_run_dbt_command(["seed"] + profile_args)
-            # run dbt snapshot?
-            # run dbt build --full-refresh
-            # cli_run_dbt_command(["run", "--full-refresh"] + profile_args)
-            # run dbt test
-            # cli_run_dbt_command(["test"] + profile_args)
-            # MAYBE (or maybe just test run): run dbt build (for incremental)
-            # MAYBE (or maybe just test run): run dbt test
-            # run dbt docs
-            # upload docs
-            # deploy and upload manifest in same transaction!
-
-            # Get manifest
-            with open("target/manifest.json") as manifest_file:
-                manifest = manifest_file.read()
-            
-            # Get lock on deploy DB
-            deploy_db_lock = schedule.warehouse.acquire_lock(schedule.deploy_config["database"])
-
-            # Deploy
-            schedule.warehouse.deploy(
-                project_name=schedule.name,
-                commit_hash=current_hash,
-                manifest=manifest,
-                build_db=schedule.build_config["database"],
-                deploy_db=schedule.deploy_config["database"],
-            )
-
-            # Release Locks
-            schedule.warehouse.release_lock(schedule.deploy_config["database"], deploy_db_lock)
-            schedule.warehouse.release_lock(schedule.build_config["database"], build_db_lock)
+                    # Update to deploy context
+                    click.secho("Updating to deploy context", fg='blue')
+                    with ctx.patch_files({
+                        "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.deploy_config["database"])
+                    }):
+                        # dbt docs (which also generates manifest). NB: We're using the DEPLOY context so the references work.
+                        cli_run_dbt_command(["docs", "generate"])
+                        # Stash the docs and the manifest
+                        ctx.stash_files("target/manifest.json", "target/catalog.json", "target/index.html")
+                        # Get manifest
+                        manifest = ctx.read_file("manifest.json")
+                        # Build docs and update manifest.
+                        click.secho("Updating Manifest.", fg='blue')
+                        schedule.warehouse.deploy_manifest(
+                            project_name=schedule.name,
+                            commit_hash=current_hash,
+                            manifest=manifest,
+                        )
+            # Upload docs here.
 
             # We should check that the user currently has access to the S3 destination before building (if we're using S3 as a backend).
             # Maybe assume manifest in snowflake.
             # Otherwise this could get sticky.
-
-        raise NotImplementedError("dbtease full deploy is not implemented yet.")
-
-    # WE NEED TO WORK OUT HOW TO HANDLE SEEDS!
-
-    # Always use --fail-fast
-    plan = [
-        "acquire lock on build database",
-        "clone",  # Clone schemas that have been modified. (including seed). [unless we can't defer to state]
-        "seed",  # use state:modified if we can.
-        "snapshot",  # currently this is at the start - is that a good thing?
-        "run --full-refresh",  # use state:modified+ if we can.
-        "run incremental",  # use scheme selectors if available otherwise skip. NB: no need to full refresh tables we haven't changed if we can just do incremental on them.
-        "test",  # only test once during deploy cycle - assume we tested properly the first during the PR phase.
-        "docs",
-        "perms",
-        "acquire lock on deploy database",
-        "deploy",  # as in swap database. If we only need to deploy some schemas, just do them. The others were deferred to state and so won't be complete.
-        "update last deploy marker for schema",  # importantly before we release lock
-        "release lock on both databases",
-        "deploy",  # as in update terraform? {or is that seperate}
-        "upload artifacts."  # (inluding docs)
-    ]
-
-    raise NotImplementedError("dbtease deploy is not implemented yet.")
 
 
 if __name__ == '__main__':

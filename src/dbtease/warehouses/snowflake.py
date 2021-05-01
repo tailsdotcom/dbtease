@@ -3,6 +3,8 @@
 import logging
 import snowflake.connector
 import uuid
+import click
+from contextlib import contextmanager
 
 from dbtease.warehouses.base import Sql, Warehouse
 
@@ -104,7 +106,7 @@ class SnowflakeWarehouse(Warehouse):
             return current_live[0][0]
         return None
 
-    def deploy(self, project_name: str, commit_hash: str, manifest: str, build_db: str, deploy_db: str):
+    def deploy(self, project_name: str, commit_hash: str, build_db: str, deploy_db: str):
         """Deploy the current project."""
         # TODO: Make sure we acquire a lock first.
         self._execute_transaction(
@@ -118,15 +120,14 @@ class SnowflakeWarehouse(Warehouse):
             # Do the upsert of new metadata
             Sql(
                 """
-                merge into live_deploys using (select %s as project_name, %s as commit_hash, %s as manifest) as b
+                merge into live_deploys using (select %s as project_name, %s as commit_hash) as b
                         on live_deploys.project_name = b.project_name
-                    when matched then update set live_deploys.commit_hash = b.commit_hash, live_deploys.manifest = b.manifest
-                    when not matched then insert (project_name, commit_hash, manifest) values (b.project_name, b.commit_hash, b.manifest)
+                    when matched then update set live_deploys.commit_hash = b.commit_hash, live_deploys.manifest = NULL
+                    when not matched then insert (project_name, commit_hash, manifest) values (b.project_name, b.commit_hash, NULL)
                 """,
                 (
                     project_name,
                     commit_hash,
-                    manifest,
                 ),
             ),
             # Do the swap (creating the destination if it doesn't already exist).
@@ -135,7 +136,12 @@ class SnowflakeWarehouse(Warehouse):
             f"DROP DATABASE {build_db}",
         )
         logger.info("Deployed from %r to %r", build_db, deploy_db)
-    
+
+    def deploy_manifest(self, project_name: str, commit_hash: str, manifest: str):
+        """update manifest for current project."""
+        # Update manifest for this project
+        self._execute_sql("UPDATE live_deploys SET manifest = %s WHERE project_name = %s and commit_hash = %s", (manifest, project_name, commit_hash))
+
     def acquire_lock(self, target: str, ttl_minutes=1):
         lock_key = str(uuid.uuid4())
         # Make sure we have a locks table.
@@ -172,8 +178,23 @@ class SnowflakeWarehouse(Warehouse):
             logger.info("Failed lock acquisition on %r", target)
             return None
 
+    def create_wipe_db(self, db_name):
+        self._execute_sql(f"create or replace database {db_name}")
 
     def release_lock(self, target: str, lock_key:str):
         # SHOULD THIS BE A CONTEXT MANAGER?
         self._execute_sql("DELETE FROM database_locks WHERE target_database = %s and process_id = %s", (target, lock_key))
         logger.info("Lock released on %r", target)
+
+    @contextmanager
+    def lock(self, target: str, ttl_minutes=1):
+        """Context Manager which implements acquire and release lock."""
+        lock_key = self.acquire_lock(target=target, ttl_minutes=ttl_minutes)
+        if not lock_key:
+            raise click.ClickException(
+                "Unable to lock {0!r}. Someone else has the lock. Try again later.".format(schedule.build_config["database"])
+            )
+        try:
+            yield
+        finally:
+            self.release_lock(target, lock_key)
