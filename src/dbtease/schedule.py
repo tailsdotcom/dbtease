@@ -3,6 +3,7 @@
 import os.path
 import networkx as nx
 import logging
+import click
 
 from dbtease.schema import DbtSchema
 from dbtease.warehouses import get_warehouse_from_target
@@ -35,7 +36,10 @@ class DbtSchedule(YamlFileObject):
         self.filestore = filestore
 
     def get_schema(self, schema):
-        return self.graph.nodes[schema]["schema"]
+        try:
+            return self.graph.nodes[schema]["schema"]
+        except KeyError:
+            raise click.ClickException(f"Schema {schema!r} is referred to but is not defined.")
 
     def iter_schemas(self):
         for node_name in self.graph.nodes:
@@ -71,17 +75,17 @@ class DbtSchedule(YamlFileObject):
             if schema.materialized
         )
 
-    def _plan_from_changed_files(self, changed_files):
+    def _plan_from_changed_files(self, changed_files, deploy=True):
         """Generate a plan of attack from changed files."""
         schema_files, unmatched_files = self._match_changed_files(
             changed_files
         )
         changed_schemas = {*schema_files.keys()}
         # Filter only to materialized schemas using set operators
-        deploy_schemas = (
-            self._get_dependent_schemas(*changed_schemas)
-            & self.materialized_schemas()
-        )
+        deploy_schemas = self._get_dependent_schemas(*changed_schemas)
+        # When refreshing, we don't need to refresh view schemas
+        if not deploy:
+            deploy_schemas &= self.materialized_schemas()
         # Lastly, for the changed and dependent schemas, we need to
         # identify an appropriate order of operations.
         # We do this by iterating a sorted generator on the graph.
@@ -100,7 +104,7 @@ class DbtSchedule(YamlFileObject):
             "deploy_order": deploy_order
         }
 
-    def status_dict(self):
+    def status_dict(self, deploy=True):
         """Determine the current status of the repository."""
         # Load state
         deployed_hash = self.warehouse.get_current_deployed(self.name)
@@ -115,7 +119,7 @@ class DbtSchedule(YamlFileObject):
                 for fpath in changed_files
                 if os.path.abspath(fpath).startswith(os.path.abspath(self.project_dir))
             }
-        plan_dict = self._plan_from_changed_files(changed_files)
+        plan_dict = self._plan_from_changed_files(changed_files, deploy=deploy)
         return {
             "deployed_hash": deployed_hash,
             "current_hash": git_status["commit_hash"],

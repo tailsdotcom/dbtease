@@ -25,11 +25,11 @@ def cli():
     pass
 
 
-def common_setup(project_dir, profiles_dir, schedule_dir):
+def common_setup(project_dir, profiles_dir, schedule_dir, deploy=True):
     schedule_dir = schedule_dir or project_dir
     # Load the schedule
     schedule = DbtSchedule.from_path(schedule_dir, profiles_dir=profiles_dir, project_dir=project_dir)
-    status_dict = schedule.status_dict()
+    status_dict = schedule.status_dict(deploy=deploy)
     return schedule, status_dict
 
 
@@ -114,7 +114,7 @@ def test():
 @click.option('-s', '--schema', default=None)
 def refresh(project_dir, profiles_dir, schedule_dir, schema):
     """Runs an appropriate refresh of the existing state."""
-    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
+    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir, deploy=False)
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
