@@ -25,6 +25,7 @@ class SnowflakeWarehouse(Warehouse):
         self.warehouse = warehouse
         # self.database = database
         # self.schema = schema
+        self._first_connect = True
 
     def _connect(self, autocommit=True):
         con = snowflake.connector.connect(
@@ -42,8 +43,13 @@ class SnowflakeWarehouse(Warehouse):
                 'QUERY_TAG': 'dbtease',
             }
         )
-        version = con.cursor().execute("select CURRENT_VERSION() as version").fetchone()
-        logger.info("Connected to snowflake. Snowflake version: %s", version)
+        if self._first_connect:
+            version = con.cursor().execute("select CURRENT_VERSION() as version").fetchone()
+            if version:
+                logger.info("Connected to snowflake. Snowflake version: %s", version[0])
+            else:
+                raise RuntimeError("Connection error when attempting to retrieve version from snowflake!")
+            self._first_connect = False
         return con
 
     def _execute_sql(self, sql, params=None):
@@ -128,6 +134,7 @@ class SnowflakeWarehouse(Warehouse):
             f"ALTER DATABASE {build_db} SWAP WITH {deploy_db}",
             f"DROP DATABASE {build_db}",
         )
+        logger.info("Deployed from %r to %r", build_db, deploy_db)
     
     def acquire_lock(self, target: str, ttl_minutes=1):
         lock_key = str(uuid.uuid4())
@@ -159,10 +166,14 @@ class SnowflakeWarehouse(Warehouse):
         # Did we get it?
         current_lock = self._execute_sql("SELECT process_id FROM database_locks WHERE target_database = %s", target)[0][0]
         if current_lock == lock_key:
+            logger.info("Acquired lock on %r", target)
             return lock_key
         else:
+            logger.info("Failed lock acquisition on %r", target)
             return None
 
 
-    def release_lock(self, target: str):
-        ...
+    def release_lock(self, target: str, lock_key:str):
+        # SHOULD THIS BE A CONTEXT MANAGER?
+        self._execute_sql("DELETE FROM database_locks WHERE target_database = %s and process_id = %s", (target, lock_key))
+        logger.info("Lock released on %r", target)

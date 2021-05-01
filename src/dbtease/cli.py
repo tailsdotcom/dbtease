@@ -254,7 +254,9 @@ def deploy(project_dir, profiles_dir, schedule_dir):
             cli_run_dbt_command(["seed"] + profile_args)
             # run dbt snapshot?
             # run dbt build --full-refresh
+            # cli_run_dbt_command(["run", "--full-refresh"] + profile_args)
             # run dbt test
+            # cli_run_dbt_command(["test"] + profile_args)
             # MAYBE (or maybe just test run): run dbt build (for incremental)
             # MAYBE (or maybe just test run): run dbt test
             # run dbt docs
@@ -264,6 +266,11 @@ def deploy(project_dir, profiles_dir, schedule_dir):
             # Get manifest
             with open("target/manifest.json") as manifest_file:
                 manifest = manifest_file.read()
+            
+            # Get lock on deploy DB
+            deploy_db_lock = schedule.warehouse.acquire_lock(schedule.deploy_config["database"])
+
+            # Deploy
             schedule.warehouse.deploy(
                 project_name=schedule.name,
                 commit_hash=current_hash,
@@ -271,6 +278,10 @@ def deploy(project_dir, profiles_dir, schedule_dir):
                 build_db=schedule.build_config["database"],
                 deploy_db=schedule.deploy_config["database"],
             )
+
+            # Release Locks
+            schedule.warehouse.release_lock(schedule.deploy_config["database"], deploy_db_lock)
+            schedule.warehouse.release_lock(schedule.build_config["database"], build_db_lock)
 
             # We should check that the user currently has access to the S3 destination before building (if we're using S3 as a backend).
             # Maybe assume manifest in snowflake.
