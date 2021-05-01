@@ -1,0 +1,6 @@
+basic_dbtease:
+  build:
+    image: basic_dbtease
+    dockerfile: Dockerfile
+  # Cache it to avoid docker hub rate limiting
+  cached: true
