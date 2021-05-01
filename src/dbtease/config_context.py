@@ -21,7 +21,7 @@ class ConfigContext:
             os.makedirs(self.config_path)
         # Populate the folder
         self._persist_file_dict(self.file_dict)
-        logger.info("Using config path: %r", self.config_path)
+        logger.debug("Using config path: %r", self.config_path)
         return self
 
     def __exit__(self, type, value, traceback):

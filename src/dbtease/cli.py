@@ -1,6 +1,7 @@
 import click
 import logging
 import sys
+import datetime
 
 from dbtease.schedule import DbtSchedule
 from dbtease.dbt import DbtProject
@@ -139,40 +140,65 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
         deploy_plan = [schema]
     else:
         deploy_plan = status_dict["deploy_order"]
-    click.echo(f"Deploying schemas: {deploy_plan!r}")
+    click.secho(f"Deploying schemas: {deploy_plan!r}", fg='cyan')
 
-    config_files = {
-        "profiles.yml": schedule.project.generate_profiles_yml(database="foo")
-    }
+    # Refresh cycle.
 
-    with ConfigContext(file_dict=config_files) as config_path:
-        print("Config Path:", config_path)
+    # Fetch manifest of current live build
+    manifest = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
 
-    # Always use --fail-fast
-    plan = [
-        "snapshot",  # currently this is at the start - is that a good thing?
-        # maybe only on some schedules? I'm assuming this is not schema specific.
-        "for each schema in turn..." ,
-        [
-            "acquire lock on build database",
-            "clone live schema",  # if it's materialised, otherwise we start blank
-            "run incremental",  # with defer AND with selectors for just this schema.
-            "test",  # with defer and with selectors for just this schema.
-            "perms",  # or do we ignore this for now?
-            "acquire lock on deploy database",
-            "deploy",  # schema with swap.
-            "update last deploy marker for schema",  # importantly before we release lock
-            "release lock on both databases",
-        ]
-    ]
+    # dbt deps
+    cli_run_dbt_command(["deps"])
 
-    raise NotImplementedError("dbtease refresh is not implemented yet.")
+    for schema_name in deploy_plan:
+        click.secho(f"BUILDING: {schema_name}", fg='cyan')
+        schema = schedule.get_schema(schema_name)
+        build_db = schema.build_config.get('database', None) or schedule.build_config["database"]
+        # Set up context
+        with ConfigContext(file_dict={
+            "profiles.yml": schedule.project.generate_profiles_yml(database=build_db),
+            "manifest.json": manifest
+        }) as ctx:
+            profile_args = ["--profiles-dir", str(ctx)]
+            # defer only works for run and test
+            defer_args = ["--defer", "--state", str(ctx)]
+            # Acquire lock on build database
+            with schedule.warehouse.lock(build_db):
+                build_timestamp = datetime.datetime.utcnow()
+                # Make a blank build database.
+                click.secho(f"Creating clean build database: {build_db!r}", fg='bright_blue')
+                schedule.warehouse.create_wipe_db(build_db)
+                # If it's a materialised schema, clone the live version into it
+                if schema.materialized:
+                    for sch in schema.schemas:
+                        click.secho(f"Cloning live schema: {sch!r}", fg='bright_blue')
+                        schedule.warehouse.clone_schema(sch, build_db, source=schedule.deploy_config["database"])
+                # Refresh the schema (NB: Incremental)
+                # NOTE: No seeds, because they're assumed unchanged.
+                cli_run_dbt_command(["run", "--models", schema.selector(), "--fail-fast"] + profile_args + defer_args)
+                # run dbt test
+                cli_run_dbt_command(["test", "--models", schema.selector(), "--fail-fast"] + profile_args + defer_args)
+                # Deploy schema
+                # Get lock on deploy DB
+                click.secho("Acquiring Deploy Lock", fg='bright_blue')
+                with schedule.warehouse.lock(schedule.deploy_config["database"]):
+                    # Deploy
+                    click.secho("Deploying...", fg='bright_blue')
+                    schedule.warehouse.deploy_schemas(
+                        project_name=schedule.name,
+                        commit_hash=current_hash,
+                        schemas=schema.schemas,
+                        build_db=build_db,
+                        deploy_db=schedule.deploy_config["database"],
+                        build_timestamp=build_timestamp,
+                    )
+    click.secho("DONE", fg='green')
 
 
 def cli_run_command(cmd):
     click.secho(
         f"Running: {' '.join(cmd)}",
-        fg='blue'
+        fg='bright_blue'
     )
     retcode, stdoutlines,stderrlines = run_shell_command(cmd, echo=click.echo)
     if retcode != 0:
@@ -231,6 +257,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         defer_to_state = True
 
     # Do the deploy.
+    build_timestamp = datetime.datetime.utcnow()
     # Set up our config files
     with ConfigContext(file_dict={
         # Use build context first
@@ -245,7 +272,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         cli_run_dbt_command(["deps"])
         # Deploy
         # Try to get a lock on the build database
-        click.secho("Acquiring Build Lock", fg='blue')
+        click.secho("Acquiring Build Lock", fg='bright_blue')
         with schedule.warehouse.lock(schedule.build_config["database"]):
             if defer_to_state:
                 # NOTE: Although we only need to update the changed models, we still have to
@@ -256,7 +283,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
                 # schemas, only the ones we rebuilt.
 
                 # make sure we've got a database to work with.
-                click.secho("Cloning live database", fg='blue')
+                click.secho("Cloning live database", fg='bright_blue')
                 schedule.warehouse.create_wipe_db(
                     schedule.build_config["database"],
                     source=schedule.deploy_config["database"]
@@ -274,7 +301,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
                     cli_run_dbt_command(["test", "--models", schema.selector()] + profile_args)
             else:     
                 # make sure we've got a database to work with.
-                click.secho("Initialising build database", fg='blue')
+                click.secho("Initialising build database", fg='bright_blue')
                 schedule.warehouse.create_wipe_db(schedule.build_config["database"])
                 # run dbt seed
                 cli_run_dbt_command(["seed"] + profile_args)
@@ -287,20 +314,22 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
                 # MAYBE (or maybe just test run): run dbt test
                 
             # Get lock on deploy DB
-            click.secho("Acquiring Deploy Lock", fg='blue')
+            click.secho("Acquiring Deploy Lock", fg='bright_blue')
             with schedule.warehouse.lock(schedule.deploy_config["database"]):
                 # Deploy
-                click.secho("Deploying...", fg='blue')
+                click.secho("Deploying...", fg='bright_blue')
                 schedule.warehouse.deploy(
                     project_name=schedule.name,
                     commit_hash=current_hash,
+                    schemas=[schema_name for schema_name, _ in schedule.iter_schemas()],
                     # NB, no manifest on deploy. A NULL Manifest means other clients should wait briefly for it!
                     build_db=schedule.build_config["database"],
                     deploy_db=schedule.deploy_config["database"],
+                    build_timestamp=build_timestamp,
                 )
 
         # Update to deploy context to build and update docs.
-        click.secho("Updating to deploy context", fg='blue')
+        click.secho("Updating to deploy context", fg='bright_blue')
         with ctx.patch_files({
             "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.deploy_config["database"])
         }):
@@ -312,7 +341,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
             # Get manifest
             manifest = ctx.read_file("manifest.json")
             # Build docs and update manifest.
-            click.secho("Updating Manifest.", fg='blue')
+            click.secho("Updating Manifest.", fg='bright_blue')
             schedule.warehouse.deploy_manifest(
                 project_name=schedule.name,
                 commit_hash=current_hash,

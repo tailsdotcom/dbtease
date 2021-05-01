@@ -1,10 +1,13 @@
 """Snowflake warehouse connection class."""
 
+import time
+import datetime
 import logging
 import snowflake.connector
 import uuid
 import click
 from contextlib import contextmanager
+from typing import List
 
 from dbtease.warehouses.base import Sql, Warehouse
 
@@ -18,7 +21,7 @@ class SnowflakeWarehouse(Warehouse):
     state_database = "_dbtease_state"
     state_schema = "public"
 
-    def __init__(self, user, password, account, warehouse, **kwargs):
+    def __init__(self, user, password, account, warehouse, schema, **kwargs):
         if "type" in kwargs:
             assert kwargs["type"] == "snowflake"
         self.user = user
@@ -26,7 +29,9 @@ class SnowflakeWarehouse(Warehouse):
         self.account = account
         self.warehouse = warehouse
         # self.database = database
-        # self.schema = schema
+        # NOTE: We keep the schema to add as a root to any schema commands.
+        # NOTE: IT IS NOT THE DEFAULT SCHEMA OF THE CONNECTION.
+        self.schema = schema
         self._first_connect = True
 
     def _connect(self, autocommit=True):
@@ -48,7 +53,7 @@ class SnowflakeWarehouse(Warehouse):
         if self._first_connect:
             version = con.cursor().execute("select CURRENT_VERSION() as version").fetchone()
             if version:
-                logger.info("Connected to snowflake. Snowflake version: %s", version[0])
+                logger.debug("Connected to snowflake. Snowflake version: %s", version[0])
             else:
                 raise RuntimeError("Connection error when attempting to retrieve version from snowflake!")
             self._first_connect = False
@@ -106,13 +111,13 @@ class SnowflakeWarehouse(Warehouse):
             return current_live[0][0]
         return None
 
-    def deploy(self, project_name: str, commit_hash: str, build_db: str, deploy_db: str):
+    def deploy(self, project_name: str, commit_hash: str, schemas: List[str], build_db: str, deploy_db: str, build_timestamp: datetime.datetime):
         """Deploy the current project."""
-        # TODO: Make sure we acquire a lock first.
         self._execute_transaction(
-            # Create table if not exists
+            # Create metadata schema if not exists
             f"CREATE DATABASE IF NOT EXISTS {self.state_database}",
             f"CREATE SCHEMA IF NOT EXISTS {self.state_schema}",
+            # Create deploys table if not exists
             Sql(
                 "CREATE TABLE IF NOT EXISTS live_deploys "
                 " (project_name string, commit_hash string, manifest string)"
@@ -130,6 +135,23 @@ class SnowflakeWarehouse(Warehouse):
                     commit_hash,
                 ),
             ),
+            # Create last_refresh table if not exists
+            Sql(
+                "CREATE TABLE IF NOT EXISTS last_refresh "
+                " (project_name string, schema string, build_timestamp TIMESTAMP_NTZ)"
+            ),
+            # Update values for all the schemas.
+            *[
+                Sql(
+                    """
+                    merge into last_refresh using (select %s as project_name, %s as schema, %s as build_timestamp) as b
+                            on last_refresh.project_name = b.project_name and last_refresh.schema = b.schema
+                        when matched then update set last_refresh.build_timestamp = b.build_timestamp
+                        when not matched then insert (project_name, schema, build_timestamp) values (b.project_name, b.schema, b.build_timestamp)
+                    """,
+                    (project_name, schema, build_timestamp.isoformat())
+                ) for schema in schemas
+            ],
             # Do the swap (creating the destination if it doesn't already exist).
             f"CREATE DATABASE IF NOT EXISTS {deploy_db}",
             f"ALTER DATABASE {build_db} SWAP WITH {deploy_db}",
@@ -137,10 +159,48 @@ class SnowflakeWarehouse(Warehouse):
         )
         logger.info("Deployed from %r to %r", build_db, deploy_db)
 
+    def deploy_schemas(self, project_name: str, commit_hash: str, schemas: List[str], build_db: str, deploy_db: str, build_timestamp: datetime.datetime):
+        """Deploy specific schemas into live."""
+        # TODO: Also update timestamps here.
+        swap_statements = [
+            f"ALTER SCHEMA {build_db}.{self.schema}_{sch} SWAP WITH {deploy_db}.{self.schema}_{sch}"
+            for sch in schemas
+        ]
+        update_statements = [
+            Sql(
+                "UPDATE last_refresh SET build_timestamp = %s WHERE project_name = %s AND schema = %s",
+                (build_timestamp.isoformat(), project_name, schema)
+            ) for schema in schemas
+        ]
+        self._execute_transaction(
+            *swap_statements,
+            *update_statements,
+        )
+        logger.info("Deployed %r from %r to %r", schemas, build_db, deploy_db)
+
     def deploy_manifest(self, project_name: str, commit_hash: str, manifest: str):
         """update manifest for current project."""
         # Update manifest for this project
         self._execute_sql("UPDATE live_deploys SET manifest = %s WHERE project_name = %s and commit_hash = %s", (manifest, project_name, commit_hash))
+
+    def _fetch_manifest(self, project_name:str, commit_hash: str):
+        result = self._execute_sql("SELECT commit_hash, manifest FROM live_deploys WHERE project_name = %s", project_name)
+        if not result:
+            raise click.ClickException(f"No deploy for {project_name!r}. Run deploy first.")
+        return result[0]
+
+    def fetch_manifest(self, project_name: str, commit_hash: str, attempts=5, pause=5):
+        """fetch manifest for current project."""
+        # Update manifest for this project
+        for attempt in range(attempts):
+            current_commit, manifest = self._fetch_manifest(project_name=project_name, commit_hash=commit_hash)
+            if current_commit != commit_hash:
+                raise click.ClickException(f"Commit hash out of date. Another deploy has happened. Try again.")
+            if manifest:
+                return manifest
+            logger.warning("Current deploy has a null manifest. A deploy may have just happened. Waiting for %s", pause)
+            time.sleep(pause)
+        raise click.ClickException(f"Manifest no present after {attempts} attempts. Somthing is very wrong.")
 
     def acquire_lock(self, target: str, ttl_minutes=1):
         lock_key = str(uuid.uuid4())
@@ -183,6 +243,9 @@ class SnowflakeWarehouse(Warehouse):
             self._execute_sql(f"create or replace database {db_name} CLONE {source}")
         else:
             self._execute_sql(f"create or replace database {db_name}")
+
+    def clone_schema(self, schema, destination, source):
+        self._execute_sql(f"create or replace schema {destination}.{self.schema}_{schema} CLONE {source}.{self.schema}_{schema}")
 
     def release_lock(self, target: str, lock_key:str):
         # SHOULD THIS BE A CONTEXT MANAGER?

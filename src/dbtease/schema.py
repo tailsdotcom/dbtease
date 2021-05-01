@@ -7,7 +7,7 @@ class DbtSchema:
     def __init__(
         self, name, paths, schedule=None,
         depends_on=None, materialized=False,
-        build=None
+        build=None, schemas=None
     ):
         self.name = name
         self.paths = paths
@@ -15,6 +15,7 @@ class DbtSchema:
         self.depends_on = depends_on
         self.materialized = materialized
         self.build_config = build or {}
+        self.schemas = schemas or [name]
 
     def __repr__(self):
         return f"<DbtSchema: {self.name}>"
@@ -31,7 +32,7 @@ class DbtSchema:
     
     def selector(self):
         selectors = ["path:" + path for path in self.paths]
-        return ','.join(selectors)
+        return ' '.join(selectors)
 
     @classmethod
     def from_dict(cls, name, config):
