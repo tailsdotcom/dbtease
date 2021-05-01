@@ -21,17 +21,19 @@ class SnowflakeWarehouse(Warehouse):
     state_database = "_dbtease_state"
     state_schema = "public"
 
-    def __init__(self, user, password, account, warehouse, schema, **kwargs):
+    def __init__(self, user, password, account, warehouse, schema, database, **kwargs):
         if "type" in kwargs:
             assert kwargs["type"] == "snowflake"
         self.user = user
         self.password = password
         self.account = account
         self.warehouse = warehouse
-        # self.database = database
         # NOTE: We keep the schema to add as a root to any schema commands.
-        # NOTE: IT IS NOT THE DEFAULT SCHEMA OF THE CONNECTION.
+        # NOTE: We keep the database the database for dbtease test.
+        # NOTE: THEY ARE NOT THE DEFAULTS OF THE CONNECTION.
+        self.database = database
         self.schema = schema
+
         self._first_connect = True
 
     def _connect(self, autocommit=True):

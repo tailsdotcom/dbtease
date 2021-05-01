@@ -46,10 +46,15 @@ class DbtProfiles(YamlFileObject):
         for profile_target in list(new_profiles_obj[self.profile]["outputs"].keys()):
             if profile_target != target:
                 new_profiles_obj[self.profile]["outputs"].pop(profile_target)
-        # Patch database
+        # Patch database (if provided)
         if database:
             new_profiles_obj[self.profile]["outputs"][target]["database"] = database
         return yaml.dump(new_profiles_obj)
+
+    def get_default_database(self, target=None):
+        # Get detault target if not set
+        target = target or self.profiles_obj[self.profile]["target"]
+        return self.profiles_obj[self.profile]["outputs"][target]["database"]
 
 
 class DbtProject(YamlFileObject):
@@ -72,3 +77,8 @@ class DbtProject(YamlFileObject):
         profiles_dir = os.path.expanduser(profiles_dir)
         parent_profiles = DbtProfiles.from_path(path=profiles_dir, profile=self.profile_name)
         return parent_profiles.generate_patched_yml(database=database, target=target)
+    
+    def get_default_database(self, profiles_dir="~/.dbt/", target=None):
+        profiles_dir = os.path.expanduser(profiles_dir)
+        parent_profiles = DbtProfiles.from_path(path=profiles_dir, profile=self.profile_name)
+        return parent_profiles.get_default_database(target=target)

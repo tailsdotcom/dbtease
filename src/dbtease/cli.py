@@ -44,7 +44,6 @@ def echo_status(status_dict, project_name):
         ("Deployment Plan", ", ".join(status_dict["deploy_order"])),
         ("Redeploy Due", status_dict["redeploy_due"]),
         ("Refreshes Due", ", ".join(status_dict["refreshes_due"])),
-        ("Deployment Plan", ", ".join(status_dict["deploy_order"])),
     ]
     for label, value in config_pairs:
         click.echo(f"{label:22} - {value}")
@@ -72,21 +71,26 @@ def status(project_dir, profiles_dir, schedule_dir):
 
 
 @cli.command()
-def test():
+@click.option('--project-dir', default=".")
+@click.option('--profiles-dir', default="~/.dbt/")
+@click.option('--schedule-dir', default=None)
+@click.option('--database', default=None)
+def test(project_dir, profiles_dir, schedule_dir, database):
     """Tests the current active changes."""
-    # Load project
-    project = DbtProject.from_path(".")
-    # Load the schedule
-    schedule = DbtSchedule.from_path(".")
-    status_dict = schedule.status_dict(project=project)
+    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
+    # Output the status.
+    echo_status(status_dict, schedule.name)
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
     if deployed_hash == current_hash and not status_dict["dirty_tree"]:
-        raise click.UsageError(
-            "No changes made compared to deployed version. "
-            "To build regardless, call `dbt run` directly."
-        )
+        click.secho("No changes made compared to deployed version.", fg='yellow')
+        return
+
+    build_db = database or schedule.project.get_default_database()
+    file_dict = {
+        "profiles.yml": schedule.project.generate_profiles_yml(database=build_db)
+    }
 
     if not deployed_hash:
         click.secho(
@@ -100,20 +104,49 @@ def test():
         defer_to_state = False
     else:
         defer_to_state = True
+        # Fetch manifest of current live build
+        file_dict["manifest.json"] = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
 
-    # Always use --fail-fast
-    plan = [
-        "acquire lock on build database",  # using generated name if we're in codeship?
-        "seed",  # use state:modified if we can.
-        "snapshot",  # currently this is at the start - is that a good thing?
-        "run --full-refresh",  # use state:modified+ if we can.
-        "test",  # use state:modified+ if we can.
-        "run incremental",  # use state:modified+ if we can.
-        "test",  # yes again. (use state:modified+ if we can)
-        "release lock on build database",
-    ]
+    try:
+        # Set up our config files
+        with ConfigContext(file_dict=file_dict) as ctx:
+            profile_args = ["--profiles-dir", str(ctx)]
+            # dbt deps
+            cli_run_dbt_command(["deps"])
+            # Deploy
+            # Try to get a lock on the build database
+            click.secho("Acquiring Build Lock", fg='bright_blue')
+            with schedule.warehouse.lock(build_db):
+                # make sure we've got a database to work with.
+                click.secho("Cleaning test database", fg='bright_blue')
+                schedule.warehouse.create_wipe_db(build_db)
+                if defer_to_state:
+                    # run dbt seed
+                    cli_run_dbt_command(["seed", "--select", "state:modified", "--full-refresh", "--state", str(ctx)] + profile_args)  
+                    # run dbt. NOTE: full refresh + to also do donwstream dependencies. Defer so we don't build what we don't need.
+                    cli_run_dbt_command(["run", "--models", "state:modified+", "--full-refresh", "--fail-fast", "--defer", "--state", str(ctx)] + profile_args)
+                    # dbt test. with dependencies
+                    cli_run_dbt_command(["test", "--models", "state:modified+", "--defer", "--state", str(ctx)] + profile_args)
+                    # run - incrementally this time (but only run the models which are incremental and their dependencies)
+                    cli_run_dbt_command(["run", "--models", "state:modified+,config.materialized:incremental+", "--defer", "--fail-fast", "--state", str(ctx)] + profile_args)
+                    # dbt test again, with dependencies
+                    cli_run_dbt_command(["test", "--models", "state:modified+,config.materialized:incremental+", "--defer", "--state", str(ctx)] + profile_args)
+                else:     
+                    # run dbt seed
+                    cli_run_dbt_command(["seed", "--full-refresh"] + profile_args)
+                    # run dbt build --full-refresh
+                    cli_run_dbt_command(["run", "--full-refresh", "--fail-fast"] + profile_args)
+                    # run dbt test
+                    cli_run_dbt_command(["test"] + profile_args)
+                    # run incrementally
+                    cli_run_dbt_command(["run", "--models", "config.materialized:incremental+", "--fail-fast"] + profile_args)
+                    # dbt test again, with dependencies
+                    cli_run_dbt_command(["test", "--models", "config.materialized:incremental+"] + profile_args)
+        click.secho("SUCCESS", fg='green')
+    except Exception as err:
+        click.secho("FAIL", fg='red')
+        raise err
 
-    raise NotImplementedError("dbtease test is not implemented yet.")
 
 
 def cli_run_command(cmd):
@@ -225,7 +258,7 @@ def database_deploy(schedule, current_hash, defer_to_state):
                     click.secho(f"BUILDING: {schema_name}", fg='cyan')
                     schema = schedule.get_schema(schema_name)
                     # run dbt seed
-                    cli_run_dbt_command(["seed", "--select", schema.selector()] + profile_args)
+                    cli_run_dbt_command(["seed", "--select", schema.selector(), "--full-refresh"] + profile_args)
                     # run dbt build --full-refresh
                     cli_run_dbt_command(["run", "--models", schema.selector(), "--full-refresh", "--fail-fast"] + profile_args)
                     # run dbt test
@@ -235,7 +268,7 @@ def database_deploy(schedule, current_hash, defer_to_state):
                 click.secho("Initialising build database", fg='bright_blue')
                 schedule.warehouse.create_wipe_db(schedule.build_config["database"])
                 # run dbt seed
-                cli_run_dbt_command(["seed"] + profile_args)
+                cli_run_dbt_command(["seed", "--full-refresh"] + profile_args)
                 # run dbt snapshot?
                 # run dbt build --full-refresh
                 cli_run_dbt_command(["run", "--full-refresh", "--fail-fast"] + profile_args)
@@ -345,6 +378,8 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
 def deploy(project_dir, profiles_dir, schedule_dir, force):
     """Attempt to deploy the current commit as the new live version."""
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
+    # Output the status.
+    echo_status(status_dict, schedule.name)
     # Validate state
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
