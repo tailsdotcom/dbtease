@@ -198,7 +198,7 @@ class SnowflakeWarehouse(Warehouse):
         for attempt in range(attempts):
             current_commit, manifest = self._fetch_manifest(project_name=project_name, commit_hash=commit_hash)
             if current_commit != commit_hash:
-                raise click.ClickException(f"Commit hash out of date. Another deploy has happened. Try again.")
+                raise click.ClickException("Commit hash out of date. Another deploy has happened. Try again.")
             if manifest:
                 return manifest
             logger.warning("Current deploy has a null manifest. A deploy may have just happened. Waiting for %s", pause)

@@ -36,15 +36,17 @@ def run_shell_command(cmd: List[str], echo=None):
         # Force line level buffering so things arrive in order.
         universal_newlines=True, bufsize=1
     )
-    # Output stdout as we go...
-    stdoutlines = []  # Cache for stdout lines
-    with process.stdout:
+    # Cache for stdout lines, outputting as we go...
+    stdoutlines = []
+    if process.stdout:
         stdoutlines = list(_log_from(process.stdout, echo=echo))
 
     # Wait for command to finish
     retcode = process.wait()
 
     # Process stderr
-    stderrlines = [_process_line(line) for line in process.stderr]
+    stderrlines = []
+    if process.stderr:
+        stderrlines = [_process_line(line) for line in process.stderr]
     # Don't check for success, just return with the relevant code
     return retcode, stdoutlines, stderrlines

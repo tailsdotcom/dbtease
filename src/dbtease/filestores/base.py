@@ -7,6 +7,10 @@ from typing import Dict
 class Filestore(ABC):
     """Base interactions with a filestore."""
 
+    @abstractmethod
+    def __init__(self, **kwargs):
+        ...
+
     @classmethod
     def from_dict(cls, config: Dict):
         return cls(**config)
