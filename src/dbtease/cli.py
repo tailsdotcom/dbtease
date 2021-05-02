@@ -409,7 +409,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         defer_to_state = True
 
     # Do the deploy.
-    database_deploy(schedule, current_hash, defer_to_state)
+    database_deploy(schedule, current_hash, defer_to_state, status_dict["deploy_order"])
     click.secho("DONE", fg='green')
 
 

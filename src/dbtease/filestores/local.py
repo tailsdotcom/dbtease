@@ -1,5 +1,6 @@
 """Local Filestore Class."""
 
+import os
 import os.path
 
 from dbtease.filestores.base import Filestore
@@ -12,6 +13,9 @@ class LocalFilestore(Filestore):
         self._local_path = os.path.expanduser(path)
 
     def upload_files(self, *paths: str):
+        # Make folder if it doesn't exist
+        if not os.path.exists(self._local_path):
+            os.makedirs(self._local_path)
         for path in paths:
             _, fname = os.path.split(path)
             with open(path, encoding="utf8") as stash_file:
