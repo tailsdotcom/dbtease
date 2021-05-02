@@ -309,6 +309,7 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
             )
         # Upload docs here.
         if schedule.filestore:
+            click.secho("Uploading Docs.", fg='bright_blue')
             schedule.filestore.upload_files("target/manifest.json", "target/catalog.json", "target/index.html")
 
 
@@ -390,6 +391,43 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
             "This commit is already deployed. To refresh, "
             "run `dbtease refresh`."
         )
+    if deployed_hash and not force and not status_dict["deploy_order"]:
+        click.secho(
+            "This commit changes no detectable models. Verifying Manifest...",
+            fg='yellow'
+        )
+        # Fetch manifest of current live build
+        manifest = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
+        with ConfigContext(file_dict={
+            # Use deploy context
+            "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.deploy_config["database"])
+        }) as ctx:
+            profile_args = ["--profiles-dir", str(ctx)]
+            # dbt deps
+            cli_run_dbt_command(["deps"])
+            # Compile to generate manifest
+            cli_run_dbt_command(["compile"] + profile_args)
+            # Stash the docs and the manifest
+            ctx.stash_files("target/manifest.json")
+            # Get manifest
+            new_manifest = ctx.read_file("manifest.json")
+            # is it the same
+            if ctx.compare_manifests(manifest, new_manifest):
+                click.secho("Manifests agree.", fg='green')
+                # Build docs and update manifest.
+                click.secho("Updating Manifest.", fg='bright_blue')
+                schedule.warehouse.deploy_manifest(
+                    project_name=schedule.name,
+                    commit_hash=current_hash,
+                    manifest=manifest,
+                    update_commit=True
+                )
+                click.secho("DONE", fg='green')
+                return
+            else:
+                # Maybe we could be smarter here, by *using* the difference in the manifest.
+                click.secho("Manifests disgaree. Forcing Full deploy.", fg='yellow')
+                force = True
 
     if not deployed_hash or force:
         if force:
@@ -403,7 +441,7 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         defer_to_state = False
     else:
         click.secho(
-            "ATTEMPTING PARTIAL DEPLOY",
+            f"ATTEMPTING PARTIAL DEPLOY: {', '.join(status_dict['deploy_order'])}",
             fg='cyan'
         )
         defer_to_state = True

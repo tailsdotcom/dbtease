@@ -1,4 +1,5 @@
 import os
+import json
 import os.path
 import shutil
 import logging
@@ -74,3 +75,21 @@ class ConfigContext:
     def __str__(self):
         """Just return the path if we ever make a string of this."""
         return self.config_path
+    
+    @staticmethod
+    def compare_manifests(manifest_a, manifest_b):
+        manifest_obj_a = json.loads(manifest_a)
+        manifest_obj_b = json.loads(manifest_b)
+        if manifest_obj_a == manifest_obj_b:
+            # Simple same
+            return True
+        else:
+            for key in manifest_obj_a.keys():
+                if key in ("metadata", "macros"):
+                    print("SKIP", key)
+                    continue
+                # Compare remaining keys to see if anything meaningful has changed.
+                is_same = manifest_obj_a[key] == manifest_obj_b[key]
+                if not is_same:
+                    return False
+        return True

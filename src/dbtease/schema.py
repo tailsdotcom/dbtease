@@ -24,13 +24,17 @@ class DbtSchema:
     def __repr__(self):
         return f"<DbtSchema: {self.name}>"
 
-    def matches_paths(self, paths):
+    def matches_paths(self, paths, git_path="."):
         self_paths = [os.path.realpath(path) for path in self.paths]
         matched_paths = set()
         for self_path in self_paths:
             matched_paths |= set(
                 path for path in paths
-                if os.path.realpath(path).startswith(self_path)
+                if os.path.realpath(
+                    # Join the git path on the front.
+                    # This handles potential different git and relative paths.
+                    os.path.join(git_path, path)
+                ).startswith(self_path)
             )
         return matched_paths
 

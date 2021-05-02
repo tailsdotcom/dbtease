@@ -181,10 +181,14 @@ class SnowflakeWarehouse(Warehouse):
         )
         logger.info("Deployed %r from %r to %r", schemas, build_db, deploy_db)
 
-    def deploy_manifest(self, project_name: str, commit_hash: str, manifest: str):
+    def deploy_manifest(self, project_name: str, commit_hash: str, manifest: str, update_commit: bool=False):
         """update manifest for current project."""
         # Update manifest for this project
-        self._execute_sql("UPDATE live_deploys SET manifest = %s WHERE project_name = %s and commit_hash = %s", (manifest, project_name, commit_hash))
+        if update_commit:
+            # Optionally, also update the commit hash
+            self._execute_sql("UPDATE live_deploys SET manifest = %s, commit_hash = %s WHERE project_name = %s", (manifest, commit_hash, project_name))
+        else:
+            self._execute_sql("UPDATE live_deploys SET manifest = %s WHERE project_name = %s and commit_hash = %s", (manifest, project_name, commit_hash))
 
     def _fetch_manifest(self, project_name: str, commit_hash: str):
         result = self._execute_sql("SELECT commit_hash, manifest FROM live_deploys WHERE project_name = %s", project_name)

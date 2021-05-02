@@ -52,7 +52,7 @@ class DbtSchedule(YamlFileObject):
 
     def _iter_affected_schemas(self, paths):
         for _, schema in self.iter_schemas():
-            matched_paths = schema.matches_paths(paths)
+            matched_paths = schema.matches_paths(paths, git_path=self.git_path)
             if matched_paths:
                 yield schema, matched_paths
 
