@@ -3,14 +3,14 @@ deployment: foo_prod
 schemas:
   base:
     materialized: false
-    selectors:
+    paths:
       - foo/bar
       - foo/baz
   mid:
     materialized: true
     schedule:
       cron: 0 */2 * * *
-    selectors:
+    paths:
       - foo/foo
     depends_on:
       - base
@@ -18,7 +18,7 @@ schemas:
     materialized: true
     schedule:
       cron: 0 0,12 * * *
-    selectors:
+    paths:
       - foobar
     depends_on:
       - base
@@ -27,14 +27,14 @@ schemas:
     materialized: true
     schedule:
       cron: 0 */4 * * *
-    selectors:
+    paths:
       - foobuz
     depends_on:
       - base
       - mid
   top:
     materialized: false
-    selectors:
+    paths:
       - foo/buzz
     depends_on:
       - base

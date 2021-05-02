@@ -25,7 +25,10 @@ class DbtSchedule(YamlFileObject):
 
     default_file_name = "dbt_schedule.yml"
 
-    def __init__(self, name, graph, warehouse, project, project_dir=".", git_path=".", build_config=None, deploy_config=None, filestore=None, redeploy_schedule=None):
+    def __init__(
+        self, name, graph, warehouse, project, project_dir=".", git_path=".",
+        build_config=None, deploy_config=None, filestore=None, redeploy_schedule=None
+    ):
         self.name = name
         self.graph = graph
         self.warehouse = warehouse

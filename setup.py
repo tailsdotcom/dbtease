@@ -85,6 +85,7 @@ setup(
         "networkx",
         "gitpython",
         "colorama ; platform_system==\"Windows\"",
+        "snowflake-connector-python",
     ],
     entry_points={
         "console_scripts": [
