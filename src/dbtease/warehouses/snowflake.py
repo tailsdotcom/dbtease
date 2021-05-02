@@ -181,7 +181,7 @@ class SnowflakeWarehouse(Warehouse):
         )
         logger.info("Deployed %r from %r to %r", schemas, build_db, deploy_db)
 
-    def deploy_manifest(self, project_name: str, commit_hash: str, manifest: str, update_commit: bool=False):
+    def deploy_manifest(self, project_name: str, commit_hash: str, manifest: str, update_commit: bool = False):
         """update manifest for current project."""
         # Update manifest for this project
         if update_commit:
