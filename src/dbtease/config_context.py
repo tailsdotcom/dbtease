@@ -75,7 +75,7 @@ class ConfigContext:
     def __str__(self):
         """Just return the path if we ever make a string of this."""
         return self.config_path
-    
+
     @staticmethod
     def compare_manifests(manifest_a, manifest_b):
         manifest_obj_a = json.loads(manifest_a)
@@ -86,7 +86,6 @@ class ConfigContext:
         else:
             for key in manifest_obj_a.keys():
                 if key in ("metadata", "macros"):
-                    print("SKIP", key)
                     continue
                 # Compare remaining keys to see if anything meaningful has changed.
                 is_same = manifest_obj_a[key] == manifest_obj_b[key]
