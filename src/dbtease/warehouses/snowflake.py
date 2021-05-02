@@ -6,8 +6,7 @@ import logging
 import snowflake.connector
 import uuid
 import click
-from contextlib import contextmanager
-from typing import List
+from typing import List, Optional
 
 from dbtease.warehouses.base import Sql, Warehouse
 
@@ -209,7 +208,7 @@ class SnowflakeWarehouse(Warehouse):
             time.sleep(pause)
         raise click.ClickException(f"Manifest no present after {attempts} attempts. Somthing is very wrong.")
 
-    def acquire_lock(self, target: str, ttl_minutes=1):
+    def acquire_lock(self, target: str, ttl_minutes=1) -> Optional[str]:
         lock_key = str(uuid.uuid4())
         # Make sure we have a locks table.
         self._execute_sql(f"CREATE DATABASE IF NOT EXISTS {self.state_database}")
@@ -254,23 +253,10 @@ class SnowflakeWarehouse(Warehouse):
     def clone_schema(self, schema, destination, source):
         self._execute_sql(f"create or replace schema {destination}.{self.schema}_{schema} CLONE {source}.{self.schema}_{schema}")
 
-    def release_lock(self, target: str, lock_key: str):
+    def release_lock(self, target: str, lock_key: str) -> None:
         # SHOULD THIS BE A CONTEXT MANAGER?
         self._execute_sql("DELETE FROM database_locks WHERE target_database = %s and process_id = %s", (target, lock_key))
         logger.info("Lock released on %r", target)
-
-    @contextmanager
-    def lock(self, target: str, ttl_minutes=1):
-        """Context Manager which implements acquire and release lock."""
-        lock_key = self.acquire_lock(target=target, ttl_minutes=ttl_minutes)
-        if not lock_key:
-            raise click.ClickException(
-                f"Unable to lock {target!r}. Someone else has the lock. Try again later."
-            )
-        try:
-            yield
-        finally:
-            self.release_lock(target, lock_key)
 
     def get_last_refreshes(self, project_name: str):
         results = self._execute_sql("SELECT schema, build_timestamp FROM last_refresh WHERE project_name = %s", project_name)

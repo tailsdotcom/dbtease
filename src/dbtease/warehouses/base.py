@@ -6,6 +6,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Union, Tuple, Dict, Optional, List
 
+import click
+import uuid
+from contextlib import contextmanager
+
 
 @dataclass
 class Sql:
@@ -42,13 +46,49 @@ class Warehouse(ABC):
         ...
 
     @abstractmethod
-    def deploy(self, project_name: str, commit_hash: str, schemas: List[str], build_db: str, deploy_db: str, build_timestamp: datetime.datetime):
+    def deploy(self, project_name: str, commit_hash: str, schemas: List[str], build_db: str, deploy_db: str, build_timestamp: datetime.datetime) -> None:
         ...
 
     @abstractmethod
+    def acquire_lock(self, target: str, ttl_minutes=1) -> Optional[str]:
+        ...
+
+    @abstractmethod
+    def release_lock(self, target: str, lock_key: str) -> None:
+        ...
+
+    @contextmanager
+    def lock(self, target: str, ttl_minutes: int = 1):
+        """Context Manager which implements acquire and release lock."""
+        lock_key = self.acquire_lock(target=target, ttl_minutes=ttl_minutes)
+        if not lock_key:
+            raise click.ClickException(
+                f"Unable to lock {target!r}. Someone else has the lock. Try again later."
+            )
+        try:
+            yield
+        finally:
+            self.release_lock(target, lock_key)
+
+
+class DummyWarehouse(Warehouse):
+    """Dummy warehouse for testing."""
+
+    def __init__(self, live_hash=None, **kwargs):
+        self.live_hash = live_hash
+        self._locks = {}
+
+    def get_current_deployed(self, project_name: str) -> Optional[str]:
+        return self.live_hash
+
+    def deploy(self, project_name: str, commit_hash: str, schemas: List[str], build_db: str, deploy_db: str, build_timestamp: datetime.datetime) -> None:
+        self.live_hash = commit_hash
+
     def acquire_lock(self, target: str, ttl_minutes=1):
-        ...
+        key = uuid.uuid4()
+        self._locks[target] = key
+        return key
 
-    @abstractmethod
     def release_lock(self, target: str, lock_key: str):
-        ...
+        if self._locks[target] == lock_key:
+            del self._locks[target]
