@@ -1,7 +1,4 @@
-FROM python:3.9-alpine
-
-# Install gcc
-RUN apk add build-base
+FROM python:3.9
 
 # Set up app directory, copy and move to it
 RUN mkdir /app
