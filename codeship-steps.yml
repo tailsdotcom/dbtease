@@ -1,6 +1,9 @@
-- name: Python Linting
-  service: basic-dbtease
-  command: flake8
-- name: Python Typing
-  service: basic-dbtease
-  command: mypy src
+- name: Tests
+  type: parallel
+  steps:
+    - name: Python Linting
+      service: basic-dbtease
+      command: flake8
+    - name: Python Typing
+      service: basic-dbtease
+      command: mypy src

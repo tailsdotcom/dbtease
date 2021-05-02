@@ -3,4 +3,5 @@
 
 /state.json
 /Pipfile.lock
+/Pipfile
 /dbt_schedule.yml
