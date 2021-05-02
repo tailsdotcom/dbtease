@@ -1,10 +1,11 @@
 FROM python:3.9-alpine
 
-RUN pip install pipenv
+# Install gcc
+RUN apk add build-base
 
 COPY . .
 
-# Generate requirements
-RUN pipenv lock --dev -r > requirements.txt
-# Install from requirements
+# Install from requirements (pins dependencies)
 RUN pip install -r requirements.txt
+RUN pip install -e .
+RUN pip install -r dev-requirements.txt
