@@ -4,4 +4,7 @@ RUN pip install pipenv
 
 COPY . .
 
-RUN pipenv install --dev --system
+# Generate requirements
+RUN pipenv lock --dev -r > requirements.txt
+# Install from requirements
+RUN pip install -r requirements.txt
