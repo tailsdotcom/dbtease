@@ -12,6 +12,7 @@ from dbtease.git import get_git_state
 from dbtease.common import YamlFileObject
 from dbtease.filestores import get_filestore_from_config
 from dbtease.cron import refresh_due
+from dbtease.alerts import AlterterBundle
 
 logger = logging.getLogger("dbtease.schedule")
 
@@ -27,7 +28,8 @@ class DbtSchedule(YamlFileObject):
 
     def __init__(
         self, name, graph, warehouse, project, project_dir=".", git_path=".",
-        build_config=None, deploy_config=None, filestore=None, redeploy_schedule=None
+        build_config=None, deploy_config=None, filestore=None, redeploy_schedule=None,
+        alerter_bundle=None,
     ):
         self.name = name
         self.graph = graph
@@ -39,6 +41,12 @@ class DbtSchedule(YamlFileObject):
         self.deploy_config = deploy_config or {}
         self.filestore = filestore
         self.redeploy_schedule = redeploy_schedule
+        self.alerter_bundle = alerter_bundle
+
+    def handle_event(self, alert_event: str, success: bool, message: str, metadata=None):
+        """Broadcast this event to the alert bundler if present."""
+        if self.alerter_bundle:
+            self.alerter_bundle.handle_event(alert_event=alert_event, success=success, message=message, metadata=metadata)
 
     def get_schema(self, schema):
         try:
@@ -220,5 +228,9 @@ class DbtSchedule(YamlFileObject):
         # Add redeploy schedule if present
         if "redeploy_schedule" in config:
             schedule_kwargs["redeploy_schedule"] = config["redeploy_schedule"]
+        
+        # Add redeploy schedule if present
+        if "alert" in config:
+            schedule_kwargs["alerter_bundle"] = AlterterBundle.from_config(config["alert"])
 
         return cls(**schedule_kwargs)
