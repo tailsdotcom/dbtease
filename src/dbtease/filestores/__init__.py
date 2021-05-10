@@ -7,9 +7,11 @@ That's a job for another day.
 """
 
 from dbtease.filestores.local import LocalFilestore
+from dbtease.filestores.aws import S3Filestore
 
 _filestore_options = {
-    "local": LocalFilestore
+    "local": LocalFilestore,
+    "s3": S3Filestore,
 }
 
 
