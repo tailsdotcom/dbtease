@@ -87,6 +87,7 @@ setup(
         "colorama ; platform_system==\"Windows\"",
         "snowflake-connector-python",
         "slack_sdk",
+        "boto3",
     ],
     entry_points={
         "console_scripts": [

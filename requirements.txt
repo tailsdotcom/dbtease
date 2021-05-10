@@ -15,7 +15,9 @@ azure-core==1.13.0
 azure-storage-blob==12.8.1
     # via snowflake-connector-python
 boto3==1.17.62
-    # via snowflake-connector-python
+    # via
+    #   dbtease (setup.py)
+    #   snowflake-connector-python
 botocore==1.20.62
     # via
     #   boto3
