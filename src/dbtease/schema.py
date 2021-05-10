@@ -7,9 +7,14 @@ from dbtease.cron import refresh_due
 
 class DbtSchema:
     def __init__(
-        self, name, paths, schedule=None,
-        depends_on=None, materialized=False,
-        build=None, schemas=None
+        self,
+        name,
+        paths,
+        schedule=None,
+        depends_on=None,
+        materialized=False,
+        build=None,
+        schemas=None,
     ):
         self.name = name
         self.paths = paths
@@ -29,7 +34,8 @@ class DbtSchema:
         matched_paths = set()
         for self_path in self_paths:
             matched_paths |= set(
-                path for path in paths
+                path
+                for path in paths
                 if os.path.realpath(
                     # Join the git path on the front.
                     # This handles potential different git and relative paths.
@@ -40,7 +46,7 @@ class DbtSchema:
 
     def selector(self):
         selectors = ["path:" + path for path in self.paths]
-        return ' '.join(selectors)
+        return " ".join(selectors)
 
     def refresh_due(self, last_refresh):
         """Work out whether a refresh is due based on cron and last refresh."""

@@ -14,6 +14,7 @@ from contextlib import contextmanager
 @dataclass
 class Sql:
     """Container for a statment with optional parameters."""
+
     sql: str
     params: Optional[Union[Tuple, Dict]] = None
 
@@ -46,7 +47,15 @@ class Warehouse(ABC):
         ...
 
     @abstractmethod
-    def deploy(self, project_name: str, commit_hash: str, schemas: List[str], build_db: str, deploy_db: str, build_timestamp: datetime.datetime) -> None:
+    def deploy(
+        self,
+        project_name: str,
+        commit_hash: str,
+        schemas: List[str],
+        build_db: str,
+        deploy_db: str,
+        build_timestamp: datetime.datetime,
+    ) -> None:
         ...
 
     @abstractmethod
@@ -81,7 +90,15 @@ class DummyWarehouse(Warehouse):
     def get_current_deployed(self, project_name: str) -> Optional[str]:
         return self.live_hash
 
-    def deploy(self, project_name: str, commit_hash: str, schemas: List[str], build_db: str, deploy_db: str, build_timestamp: datetime.datetime) -> None:
+    def deploy(
+        self,
+        project_name: str,
+        commit_hash: str,
+        schemas: List[str],
+        build_db: str,
+        deploy_db: str,
+        build_timestamp: datetime.datetime,
+    ) -> None:
         self.live_hash = commit_hash
 
     def acquire_lock(self, target: str, ttl_minutes=1):

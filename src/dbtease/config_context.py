@@ -35,7 +35,9 @@ class ConfigContext:
     def _persist_file_dict(self, file_dict):
         # Populate the folder
         for fname in file_dict:
-            with open(os.path.join(self.config_path, fname), "w", encoding="utf8") as config_file:
+            with open(
+                os.path.join(self.config_path, fname), "w", encoding="utf8"
+            ) as config_file:
                 config_file.write(file_dict[fname])
 
     def update_files(self, file_dict):

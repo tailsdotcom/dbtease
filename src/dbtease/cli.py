@@ -14,7 +14,7 @@ root = logging.getLogger("dbtease")
 root.setLevel(logging.INFO)
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 ch.setFormatter(formatter)
 root.addHandler(ch)
 
@@ -28,7 +28,9 @@ def cli():
 def common_setup(project_dir, profiles_dir, schedule_dir, deploy=True):
     schedule_dir = schedule_dir or project_dir
     # Load the schedule
-    schedule = DbtSchedule.from_path(schedule_dir, profiles_dir=profiles_dir, project_dir=project_dir)
+    schedule = DbtSchedule.from_path(
+        schedule_dir, profiles_dir=profiles_dir, project_dir=project_dir
+    )
     status_dict = schedule.status_dict(deploy=deploy)
     return schedule, status_dict
 
@@ -59,9 +61,9 @@ def echo_status(status_dict, project_name):
 
 
 @cli.command()
-@click.option('--project-dir', default=".")
-@click.option('--profiles-dir', default="~/.dbt/")
-@click.option('--schedule-dir', default=None)
+@click.option("--project-dir", default=".")
+@click.option("--profiles-dir", default="~/.dbt/")
+@click.option("--schedule-dir", default=None)
 def status(project_dir, profiles_dir, schedule_dir):
     """Get the current status of deployment."""
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
@@ -70,10 +72,10 @@ def status(project_dir, profiles_dir, schedule_dir):
 
 
 @cli.command()
-@click.option('--project-dir', default=".")
-@click.option('--profiles-dir', default="~/.dbt/")
-@click.option('--schedule-dir', default=None)
-@click.option('--database', default=None)
+@click.option("--project-dir", default=".")
+@click.option("--profiles-dir", default="~/.dbt/")
+@click.option("--schedule-dir", default=None)
+@click.option("--database", default=None)
 def test(project_dir, profiles_dir, schedule_dir, database):
     """Tests the current active changes."""
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
@@ -83,7 +85,7 @@ def test(project_dir, profiles_dir, schedule_dir, database):
     deployed_hash = status_dict["deployed_hash"]
     current_hash = status_dict["current_hash"]
     if deployed_hash == current_hash and not status_dict["dirty_tree"]:
-        click.secho("No changes made compared to deployed version.", fg='yellow')
+        click.secho("No changes made compared to deployed version.", fg="yellow")
         return
 
     build_db = database or schedule.project.get_default_database()
@@ -98,13 +100,15 @@ def test(project_dir, profiles_dir, schedule_dir, database):
                 "a full test build. In a large project this "
                 "may take some time..."
             ),
-            fg='yellow'
+            fg="yellow",
         )
         defer_to_state = False
     else:
         defer_to_state = True
         # Fetch manifest of current live build
-        file_dict["manifest.json"] = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
+        file_dict["manifest.json"] = schedule.warehouse.fetch_manifest(
+            schedule.name, deployed_hash
+        )
 
     try:
         # Set up our config files
@@ -114,46 +118,109 @@ def test(project_dir, profiles_dir, schedule_dir, database):
             cli_run_dbt_command(["deps"])
             # Deploy
             # Try to get a lock on the build database
-            click.secho("Acquiring Build Lock", fg='bright_blue')
+            click.secho("Acquiring Build Lock", fg="bright_blue")
             with schedule.warehouse.lock(build_db):
                 # make sure we've got a database to work with.
-                click.secho("Cleaning test database", fg='bright_blue')
+                click.secho("Cleaning test database", fg="bright_blue")
                 schedule.warehouse.create_wipe_db(build_db)
                 if defer_to_state:
                     # run dbt seed
-                    cli_run_dbt_command(["seed", "--select", "state:modified", "--full-refresh", "--state", str(ctx)] + profile_args)
+                    cli_run_dbt_command(
+                        [
+                            "seed",
+                            "--select",
+                            "state:modified",
+                            "--full-refresh",
+                            "--state",
+                            str(ctx),
+                        ]
+                        + profile_args
+                    )
                     # run dbt. NOTE: full refresh + to also do donwstream dependencies. Defer so we don't build what we don't need.
-                    cli_run_dbt_command(["run", "--models", "state:modified+", "--full-refresh", "--fail-fast", "--defer", "--state", str(ctx)] + profile_args)
+                    cli_run_dbt_command(
+                        [
+                            "run",
+                            "--models",
+                            "state:modified+",
+                            "--full-refresh",
+                            "--fail-fast",
+                            "--defer",
+                            "--state",
+                            str(ctx),
+                        ]
+                        + profile_args
+                    )
                     # dbt test. with dependencies
-                    cli_run_dbt_command(["test", "--models", "state:modified+", "--defer", "--state", str(ctx)] + profile_args)
+                    cli_run_dbt_command(
+                        [
+                            "test",
+                            "--models",
+                            "state:modified+",
+                            "--defer",
+                            "--state",
+                            str(ctx),
+                        ]
+                        + profile_args
+                    )
                     # run - incrementally this time (but only run the models which are incremental and their dependencies)
-                    cli_run_dbt_command(["run", "--models", "state:modified+,config.materialized:incremental+", "--defer", "--fail-fast", "--state", str(ctx)] + profile_args)
+                    cli_run_dbt_command(
+                        [
+                            "run",
+                            "--models",
+                            "state:modified+,config.materialized:incremental+",
+                            "--defer",
+                            "--fail-fast",
+                            "--state",
+                            str(ctx),
+                        ]
+                        + profile_args
+                    )
                     # dbt test again, with dependencies
-                    cli_run_dbt_command(["test", "--models", "state:modified+,config.materialized:incremental+", "--defer", "--state", str(ctx)] + profile_args)
+                    cli_run_dbt_command(
+                        [
+                            "test",
+                            "--models",
+                            "state:modified+,config.materialized:incremental+",
+                            "--defer",
+                            "--state",
+                            str(ctx),
+                        ]
+                        + profile_args
+                    )
                 else:
                     # run dbt seed
                     cli_run_dbt_command(["seed", "--full-refresh"] + profile_args)
                     # run dbt build --full-refresh
-                    cli_run_dbt_command(["run", "--full-refresh", "--fail-fast"] + profile_args)
+                    cli_run_dbt_command(
+                        ["run", "--full-refresh", "--fail-fast"] + profile_args
+                    )
                     # run dbt test
                     cli_run_dbt_command(["test"] + profile_args)
                     # run incrementally
-                    cli_run_dbt_command(["run", "--models", "config.materialized:incremental+", "--fail-fast"] + profile_args)
+                    cli_run_dbt_command(
+                        [
+                            "run",
+                            "--models",
+                            "config.materialized:incremental+",
+                            "--fail-fast",
+                        ]
+                        + profile_args
+                    )
                     # dbt test again, with dependencies
-                    cli_run_dbt_command(["test", "--models", "config.materialized:incremental+"] + profile_args)
-        click.secho("SUCCESS", fg='green')
+                    cli_run_dbt_command(
+                        ["test", "--models", "config.materialized:incremental+"]
+                        + profile_args
+                    )
+        click.secho("SUCCESS", fg="green")
         schedule.handle_event("test_success", success=True, message="Successful Test", metadata={"hash": current_hash})
     except Exception as err:
-        click.secho("FAIL", fg='red')
+        click.secho("FAIL", fg="red")
         schedule.handle_event("test_fail", success=False, message="Failed Test", metadata={"hash": current_hash})
         raise err
 
 
 def cli_run_command(cmd):
-    click.secho(
-        f"Running: {' '.join(cmd)}",
-        fg='bright_blue'
-    )
+    click.secho(f"Running: {' '.join(cmd)}", fg="bright_blue")
     retcode, stdoutlines, stderrlines = run_shell_command(cmd, echo=click.echo)
     if retcode != 0:
         # TODO: Better error message here.
@@ -176,14 +243,21 @@ def schemawise_refresh(deploy_plan, schedule, manifest, current_hash):
     cli_run_dbt_command(["deps"])
     # Iterate Schemas to Deploy
     for schema_name in deploy_plan:
-        click.secho(f"BUILDING: {schema_name}", fg='cyan')
+        click.secho(f"BUILDING: {schema_name}", fg="cyan")
         schema = schedule.get_schema(schema_name)
-        build_db = schema.build_config.get('database', None) or schedule.build_config["database"]
+        build_db = (
+            schema.build_config.get("database", None)
+            or schedule.build_config["database"]
+        )
         # Set up context
-        with ConfigContext(file_dict={
-            "profiles.yml": schedule.project.generate_profiles_yml(database=build_db),
-            "manifest.json": manifest
-        }) as ctx:
+        with ConfigContext(
+            file_dict={
+                "profiles.yml": schedule.project.generate_profiles_yml(
+                    database=build_db
+                ),
+                "manifest.json": manifest,
+            }
+        ) as ctx:
             profile_args = ["--profiles-dir", str(ctx)]
             # defer only works for run and test
             defer_args = ["--defer", "--state", str(ctx)]
@@ -191,24 +265,36 @@ def schemawise_refresh(deploy_plan, schedule, manifest, current_hash):
             with schedule.warehouse.lock(build_db):
                 build_timestamp = datetime.datetime.utcnow()
                 # Make a blank build database.
-                click.secho(f"Creating clean build database: {build_db!r}", fg='bright_blue')
+                click.secho(
+                    f"Creating clean build database: {build_db!r}", fg="bright_blue"
+                )
                 schedule.warehouse.create_wipe_db(build_db)
                 # If it's a materialised schema, clone the live version into it
                 if schema.materialized:
                     for sch in schema.schemas:
-                        click.secho(f"Cloning live schema: {sch!r}", fg='bright_blue')
-                        schedule.warehouse.clone_schema(sch, build_db, source=schedule.deploy_config["database"])
+                        click.secho(f"Cloning live schema: {sch!r}", fg="bright_blue")
+                        schedule.warehouse.clone_schema(
+                            sch, build_db, source=schedule.deploy_config["database"]
+                        )
                 # Refresh the schema (NB: Incremental)
                 # NOTE: No seeds, because they're assumed unchanged.
-                cli_run_dbt_command(["run", "--models", schema.selector(), "--fail-fast"] + profile_args + defer_args)
+                cli_run_dbt_command(
+                    ["run", "--models", schema.selector(), "--fail-fast"]
+                    + profile_args
+                    + defer_args
+                )
                 # run dbt test
-                cli_run_dbt_command(["test", "--models", schema.selector(), "--fail-fast"] + profile_args + defer_args)
+                cli_run_dbt_command(
+                    ["test", "--models", schema.selector(), "--fail-fast"]
+                    + profile_args
+                    + defer_args
+                )
                 # Deploy schema
                 # Get lock on deploy DB
-                click.secho("Acquiring Deploy Lock", fg='bright_blue')
+                click.secho("Acquiring Deploy Lock", fg="bright_blue")
                 with schedule.warehouse.lock(schedule.deploy_config["database"]):
                     # Deploy
-                    click.secho("Deploying...", fg='bright_blue')
+                    click.secho("Deploying...", fg="bright_blue")
                     schedule.warehouse.deploy_schemas(
                         project_name=schedule.name,
                         commit_hash=current_hash,
@@ -224,20 +310,26 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
     # Do the deploy.
     build_timestamp = datetime.datetime.utcnow()
     # Set up our config files
-    with ConfigContext(file_dict={
-        # Use build context first
-        "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.build_config["database"])
-    }) as ctx:
+    with ConfigContext(
+        file_dict={
+            # Use build context first
+            "profiles.yml": schedule.project.generate_profiles_yml(
+                database=schedule.build_config["database"]
+            )
+        }
+    ) as ctx:
         profile_args = ["--profiles-dir", str(ctx)]
         # if we're going to upload docs, check we have access.
         if schedule.filestore:
             if not schedule.filestore.check_access():
-                raise click.ClickException("Access check to filestore failed. Make sure you have access.")
+                raise click.ClickException(
+                    "Access check to filestore failed. Make sure you have access."
+                )
         # dbt deps
         cli_run_dbt_command(["deps"])
         # Deploy
         # Try to get a lock on the build database
-        click.secho("Acquiring Build Lock", fg='bright_blue')
+        click.secho("Acquiring Build Lock", fg="bright_blue")
         with schedule.warehouse.lock(schedule.build_config["database"]):
             if defer_to_state:
                 # NOTE: Although we only need to update the changed models, we still have to
@@ -248,39 +340,55 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
                 # schemas, only the ones we rebuilt.
 
                 # make sure we've got a database to work with.
-                click.secho("Cloning live database", fg='bright_blue')
+                click.secho("Cloning live database", fg="bright_blue")
                 schedule.warehouse.create_wipe_db(
                     schedule.build_config["database"],
-                    source=schedule.deploy_config["database"]
+                    source=schedule.deploy_config["database"],
                 )
 
                 # Build each schema individually, but deploy in one transaction.
                 for schema_name in deploy_order:
-                    click.secho(f"BUILDING: {schema_name}", fg='cyan')
+                    click.secho(f"BUILDING: {schema_name}", fg="cyan")
                     schema = schedule.get_schema(schema_name)
                     # run dbt seed
-                    cli_run_dbt_command(["seed", "--select", schema.selector(), "--full-refresh"] + profile_args)
+                    cli_run_dbt_command(
+                        ["seed", "--select", schema.selector(), "--full-refresh"]
+                        + profile_args
+                    )
                     # run dbt build --full-refresh
-                    cli_run_dbt_command(["run", "--models", schema.selector(), "--full-refresh", "--fail-fast"] + profile_args)
+                    cli_run_dbt_command(
+                        [
+                            "run",
+                            "--models",
+                            schema.selector(),
+                            "--full-refresh",
+                            "--fail-fast",
+                        ]
+                        + profile_args
+                    )
                     # run dbt test
-                    cli_run_dbt_command(["test", "--models", schema.selector()] + profile_args)
+                    cli_run_dbt_command(
+                        ["test", "--models", schema.selector()] + profile_args
+                    )
             else:
                 # make sure we've got a database to work with.
-                click.secho("Initialising build database", fg='bright_blue')
+                click.secho("Initialising build database", fg="bright_blue")
                 schedule.warehouse.create_wipe_db(schedule.build_config["database"])
                 # run dbt seed
                 cli_run_dbt_command(["seed", "--full-refresh"] + profile_args)
                 # run dbt snapshot?
                 # run dbt build --full-refresh
-                cli_run_dbt_command(["run", "--full-refresh", "--fail-fast"] + profile_args)
+                cli_run_dbt_command(
+                    ["run", "--full-refresh", "--fail-fast"] + profile_args
+                )
                 # run dbt test
                 cli_run_dbt_command(["test"] + profile_args)
 
             # Get lock on deploy DB
-            click.secho("Acquiring Deploy Lock", fg='bright_blue')
+            click.secho("Acquiring Deploy Lock", fg="bright_blue")
             with schedule.warehouse.lock(schedule.deploy_config["database"]):
                 # Deploy
-                click.secho("Deploying...", fg='bright_blue')
+                click.secho("Deploying...", fg="bright_blue")
                 schedule.warehouse.deploy(
                     project_name=schedule.name,
                     commit_hash=current_hash,
@@ -293,19 +401,25 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
                 schedule.handle_event("deploy_success", success=True, message="Successful Deploy", metadata={"hash": current_hash})
 
         # Update to deploy context to build and update docs.
-        click.secho("Updating to deploy context", fg='bright_blue')
-        with ctx.patch_files({
-            "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.deploy_config["database"])
-        }):
+        click.secho("Updating to deploy context", fg="bright_blue")
+        with ctx.patch_files(
+            {
+                "profiles.yml": schedule.project.generate_profiles_yml(
+                    database=schedule.deploy_config["database"]
+                )
+            }
+        ):
             # dbt docs (which also generates manifest). NB: We're using the DEPLOY context so the references work.
             # For the same reason we still need profile args.
             cli_run_dbt_command(["docs", "generate"] + profile_args)
             # Stash the docs and the manifest
-            ctx.stash_files("target/manifest.json", "target/catalog.json", "target/index.html")
+            ctx.stash_files(
+                "target/manifest.json", "target/catalog.json", "target/index.html"
+            )
             # Get manifest
             manifest = ctx.read_file("manifest.json")
             # Build docs and update manifest.
-            click.secho("Updating Manifest.", fg='bright_blue')
+            click.secho("Updating Manifest.", fg="bright_blue")
             schedule.warehouse.deploy_manifest(
                 project_name=schedule.name,
                 commit_hash=current_hash,
@@ -319,13 +433,15 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
 
 
 @cli.command()
-@click.option('--project-dir', default=".")
-@click.option('--profiles-dir', default="~/.dbt/")
-@click.option('--schedule-dir', default=None)
-@click.option('-s', '--schema', default=None)
+@click.option("--project-dir", default=".")
+@click.option("--profiles-dir", default="~/.dbt/")
+@click.option("--schedule-dir", default=None)
+@click.option("-s", "--schema", default=None)
 def refresh(project_dir, profiles_dir, schedule_dir, schema):
     """Runs an appropriate refresh of the existing state."""
-    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir, deploy=False)
+    schedule, status_dict = common_setup(
+        project_dir, profiles_dir, schedule_dir, deploy=False
+    )
     # Output the status.
     echo_status(status_dict, schedule.name)
     # Validate state
@@ -346,15 +462,14 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
         schema_options = {name for name, _ in schedule.iter_schemas()}
         if schema not in schema_options:
             raise click.UsageError(
-                f"Provided schema {schema!r} not found in "
-                "schedule file."
+                f"Provided schema {schema!r} not found in " "schedule file."
             )
         deploy_plan = [schema]
     else:
         deploy_plan = status_dict["refreshes_due"]
 
     if not deploy_plan:
-        click.secho("No refreshes due...", fg='green')
+        click.secho("No refreshes due...", fg="green")
     else:
         # Fetch manifest of current live build
         manifest = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
@@ -362,22 +477,26 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
         if status_dict["redeploy_due"]:
             click.secho(
                 "WARNING: Full redeploy is due. This may take some time on a large project.",
-                fg='yellow'
+                fg="yellow",
             )
-            database_deploy(schedule, current_hash, defer_to_state=False,
-                            deploy_order=status_dict["deploy_order"])
+            database_deploy(
+                schedule,
+                current_hash,
+                defer_to_state=False,
+                deploy_order=status_dict["deploy_order"],
+            )
         else:
-            click.secho(f"Refreshing schemas: {deploy_plan!r}", fg='cyan')
+            click.secho(f"Refreshing schemas: {deploy_plan!r}", fg="cyan")
             # Refresh cycle.
             schemawise_refresh(deploy_plan, schedule, manifest, current_hash)
-    click.secho("DONE", fg='green')
+    click.secho("DONE", fg="green")
 
 
 @cli.command()
-@click.option('--project-dir', default=".")
-@click.option('--profiles-dir', default="~/.dbt/")
-@click.option('--schedule-dir', default=None)
-@click.option('-f', '--force', is_flag=True, help="Force a full deploy cycle.")
+@click.option("--project-dir", default=".")
+@click.option("--profiles-dir", default="~/.dbt/")
+@click.option("--schedule-dir", default=None)
+@click.option("-f", "--force", is_flag=True, help="Force a full deploy cycle.")
 def deploy(project_dir, profiles_dir, schedule_dir, force):
     """Attempt to deploy the current commit as the new live version."""
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
@@ -393,20 +512,23 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         )
     if deployed_hash == current_hash and not force:
         raise click.UsageError(
-            "This commit is already deployed. To refresh, "
-            "run `dbtease refresh`."
+            "This commit is already deployed. To refresh, " "run `dbtease refresh`."
         )
     if deployed_hash and not force and not status_dict["deploy_order"]:
         click.secho(
             "This commit changes no detectable models. Verifying Manifest...",
-            fg='yellow'
+            fg="yellow",
         )
         # Fetch manifest of current live build
         manifest = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
-        with ConfigContext(file_dict={
-            # Use deploy context
-            "profiles.yml": schedule.project.generate_profiles_yml(database=schedule.deploy_config["database"])
-        }) as ctx:
+        with ConfigContext(
+            file_dict={
+                # Use deploy context
+                "profiles.yml": schedule.project.generate_profiles_yml(
+                    database=schedule.deploy_config["database"]
+                )
+            }
+        ) as ctx:
             profile_args = ["--profiles-dir", str(ctx)]
             # dbt deps
             cli_run_dbt_command(["deps"])
@@ -418,21 +540,21 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
             new_manifest = ctx.read_file("manifest.json")
             # is it the same
             if ctx.compare_manifests(manifest, new_manifest):
-                click.secho("Manifests agree.", fg='green')
+                click.secho("Manifests agree.", fg="green")
                 # Build docs and update manifest.
-                click.secho("Updating Manifest.", fg='bright_blue')
+                click.secho("Updating Manifest.", fg="bright_blue")
                 schedule.warehouse.deploy_manifest(
                     project_name=schedule.name,
                     commit_hash=current_hash,
                     manifest=manifest,
-                    update_commit=True
+                    update_commit=True,
                 )
                 schedule.handle_event("deploy_success", success=True, message="Successful Non-Project Deploy", metadata={"hash": current_hash})
                 click.secho("DONE", fg='green')
                 return
             else:
                 # Maybe we could be smarter here, by *using* the difference in the manifest.
-                click.secho("Manifests disgaree. Forcing Full deploy.", fg='yellow')
+                click.secho("Manifests disgaree. Forcing Full deploy.", fg="yellow")
                 force = True
 
     if not deployed_hash or force:
@@ -442,20 +564,20 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
             full_reason = "No current deployment. This forces a full deploy."
         click.secho(
             f"WARNING: {full_reason} In a large project this may take some time...",
-            fg='yellow'
+            fg="yellow",
         )
         defer_to_state = False
     else:
         click.secho(
             f"ATTEMPTING PARTIAL DEPLOY: {', '.join(status_dict['deploy_order'])}",
-            fg='cyan'
+            fg="cyan",
         )
         defer_to_state = True
 
     # Do the deploy.
     database_deploy(schedule, current_hash, defer_to_state, status_dict["deploy_order"])
-    click.secho("DONE", fg='green')
+    click.secho("DONE", fg="green")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli()

@@ -8,9 +8,7 @@ That's a job for another day.
 
 from dbtease.warehouses.snowflake import SnowflakeWarehouse
 
-_warehouse_options = {
-    "snowflake": SnowflakeWarehouse
-}
+_warehouse_options = {"snowflake": SnowflakeWarehouse}
 
 
 def get_warehouse_from_target(target_dict):

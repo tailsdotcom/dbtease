@@ -21,8 +21,6 @@ class LocalFilestore(Filestore):
             with open(path, encoding="utf8") as stash_file:
                 content = stash_file.read()
                 with open(
-                    os.path.join(self._local_path, fname),
-                    "w",
-                    encoding="utf8"
+                    os.path.join(self._local_path, fname), "w", encoding="utf8"
                 ) as dest_file:
                     dest_file.write(content)

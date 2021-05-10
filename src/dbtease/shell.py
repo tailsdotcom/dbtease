@@ -32,9 +32,12 @@ def run_shell_command(cmd: List[str], echo=None):
     logger.debug("Command: %r", cmd)
     # Start the process
     process = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         # Force line level buffering so things arrive in order.
-        universal_newlines=True, bufsize=1
+        universal_newlines=True,
+        bufsize=1,
     )
     # Cache for stdout lines, outputting as we go...
     stdoutlines = []
