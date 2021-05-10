@@ -98,6 +98,8 @@ six==1.15.0
     #   isodate
     #   pyopenssl
     #   python-dateutil
+slack-sdk==3.5.1
+    # via dbtease (setup.py)
 smmap==4.0.0
     # via gitdb
 snowflake-connector-python==2.4.3
