@@ -26,7 +26,7 @@ class S3Filestore(Filestore):
 
     def upload_files(self, *paths: str):
         session = boto3.Session(profile_name=self.profile)
-        s3_client = session.client('s3')
+        s3_client = session.client("s3")
         for path in paths:
             _, fname = os.path.split(path)
             try:

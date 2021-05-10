@@ -68,17 +68,18 @@ class DbtProject(YamlFileObject):
     @classmethod
     def from_dict(cls, config):
         """Load a project from a dict."""
-        return cls(
-            package_name=config["name"],
-            profile_name=config["profile"]
-        )
+        return cls(package_name=config["name"], profile_name=config["profile"])
 
     def generate_profiles_yml(self, profiles_dir="~/.dbt/", database=None, target=None):
         profiles_dir = os.path.expanduser(profiles_dir)
-        parent_profiles = DbtProfiles.from_path(path=profiles_dir, profile=self.profile_name)
+        parent_profiles = DbtProfiles.from_path(
+            path=profiles_dir, profile=self.profile_name
+        )
         return parent_profiles.generate_patched_yml(database=database, target=target)
 
     def get_default_database(self, profiles_dir="~/.dbt/", target=None):
         profiles_dir = os.path.expanduser(profiles_dir)
-        parent_profiles = DbtProfiles.from_path(path=profiles_dir, profile=self.profile_name)
+        parent_profiles = DbtProfiles.from_path(
+            path=profiles_dir, profile=self.profile_name
+        )
         return parent_profiles.get_default_database(target=target)

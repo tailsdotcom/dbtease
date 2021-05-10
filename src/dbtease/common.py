@@ -27,8 +27,5 @@ class YamlFileObject:
     def from_path(cls, path, fname=None, **kwargs):
         """Load a file from a path."""
         return cls.from_file(
-            fname=os.path.join(
-                path, fname or cls.default_file_name
-            ),
-            **kwargs
+            fname=os.path.join(path, fname or cls.default_file_name), **kwargs
         )

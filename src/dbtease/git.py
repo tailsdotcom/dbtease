@@ -21,12 +21,14 @@ def get_git_state(repo_dir=".", deployed_hash=None):
         deployed_commit = repo.commit(deployed_hash)
         diff_paths = set(_iter_diff_paths(deployed_commit.diff(None)))
     try:
-        commit_hash = repo.commit('HEAD').hexsha
+        commit_hash = repo.commit("HEAD").hexsha
     except BadName:
-        raise click.ClickException("Git repository error. Check that there is at least one commit.")
+        raise click.ClickException(
+            "Git repository error. Check that there is at least one commit."
+        )
     return {
         "dirty": repo.is_dirty(),
         "untracked": set(repo.untracked_files),
         "commit_hash": commit_hash,
-        "diff": diff_paths
+        "diff": diff_paths,
     }
