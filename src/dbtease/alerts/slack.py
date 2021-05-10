@@ -26,10 +26,30 @@ class SlackAlerter(Alerter):
     def alert(self, alert_event: str, success: bool, message: str, metadata=None):
         """Slack Logging."""
         success_fail = "SUCCESS" if success else "FAIL"
+        metadata = metadata or {}
+        schema = metadata.get("schema_name", None)
+
+        slack_emoji = ":sparkle:" if success else ":exclamation:"
+
+        message_text = f"{message}"
+        if schema:
+            message_text += f" Schema: *{schema}*"
+
+        slack_block = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"{slack_emoji} *{success_fail}*: {message_text}.",
+            },
+        }
+
         try:
             self.client.chat_postMessage(
                 channel=self.channel,
-                text=f"[test dbtease message] {alert_event} {success_fail}: {message}",
+                # Fallback message text
+                text=message_text,
+                # Blocks will be the main display
+                blocks=[slack_block],
             )
         except SlackApiError as err:
             logging.error(f"Slack Alert Error: {err.response['error']}")
