@@ -212,10 +212,20 @@ def test(project_dir, profiles_dir, schedule_dir, database):
                         + profile_args
                     )
         click.secho("SUCCESS", fg="green")
-        schedule.handle_event("test_success", success=True, message="Successful Test", metadata={"hash": current_hash})
+        schedule.handle_event(
+            "test_success",
+            success=True,
+            message="Successful Test",
+            metadata={"hash": current_hash},
+        )
     except Exception as err:
         click.secho("FAIL", fg="red")
-        schedule.handle_event("test_fail", success=False, message="Failed Test", metadata={"hash": current_hash})
+        schedule.handle_event(
+            "test_fail",
+            success=False,
+            message="Failed Test",
+            metadata={"hash": current_hash},
+        )
         raise err
 
 
@@ -303,7 +313,12 @@ def schemawise_refresh(deploy_plan, schedule, manifest, current_hash):
                         deploy_db=schedule.deploy_config["database"],
                         build_timestamp=build_timestamp,
                     )
-                    schedule.handle_event("refresh_success", success=True, message="Successful Refresh", metadata={"schema_name": schema_name, "hash": current_hash})
+                    schedule.handle_event(
+                        "refresh_success",
+                        success=True,
+                        message="Successful Refresh",
+                        metadata={"schema_name": schema_name, "hash": current_hash},
+                    )
 
 
 def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
@@ -398,7 +413,12 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
                     deploy_db=schedule.deploy_config["database"],
                     build_timestamp=build_timestamp,
                 )
-                schedule.handle_event("deploy_success", success=True, message="Successful Deploy", metadata={"hash": current_hash})
+                schedule.handle_event(
+                    "deploy_success",
+                    success=True,
+                    message="Successful Deploy",
+                    metadata={"hash": current_hash},
+                )
 
         # Update to deploy context to build and update docs.
         click.secho("Updating to deploy context", fg="bright_blue")
@@ -427,9 +447,16 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
             )
         # Upload docs here.
         if schedule.filestore:
-            click.secho("Uploading Docs.", fg='bright_blue')
-            schedule.filestore.upload_files("target/manifest.json", "target/catalog.json", "target/index.html")
-            schedule.handle_event("upload_docs_success", success=True, message="Successful Docs Upload", metadata={"hash": current_hash})
+            click.secho("Uploading Docs.", fg="bright_blue")
+            schedule.filestore.upload_files(
+                "target/manifest.json", "target/catalog.json", "target/index.html"
+            )
+            schedule.handle_event(
+                "upload_docs_success",
+                success=True,
+                message="Successful Docs Upload",
+                metadata={"hash": current_hash},
+            )
 
 
 @cli.command()
@@ -549,8 +576,13 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
                     manifest=manifest,
                     update_commit=True,
                 )
-                schedule.handle_event("deploy_success", success=True, message="Successful Non-Project Deploy", metadata={"hash": current_hash})
-                click.secho("DONE", fg='green')
+                schedule.handle_event(
+                    "deploy_success",
+                    success=True,
+                    message="Successful Non-Project Deploy",
+                    metadata={"hash": current_hash},
+                )
+                click.secho("DONE", fg="green")
                 return
             else:
                 # Maybe we could be smarter here, by *using* the difference in the manifest.
