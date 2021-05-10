@@ -86,6 +86,7 @@ setup(
         "gitpython",
         "colorama ; platform_system==\"Windows\"",
         "snowflake-connector-python",
+        "slack_sdk",
         "boto3",
     ],
     entry_points={
