@@ -12,6 +12,7 @@ from dbtease.git import get_git_state
 from dbtease.common import YamlFileObject
 from dbtease.filestores import get_filestore_from_config
 from dbtease.cron import refresh_due
+from dbtease.alerts import AlterterBundle
 
 logger = logging.getLogger("dbtease.schedule")
 
@@ -26,8 +27,18 @@ class DbtSchedule(YamlFileObject):
     default_file_name = "dbt_schedule.yml"
 
     def __init__(
-        self, name, graph, warehouse, project, project_dir=".", git_path=".",
-        build_config=None, deploy_config=None, filestore=None, redeploy_schedule=None
+        self,
+        name,
+        graph,
+        warehouse,
+        project,
+        project_dir=".",
+        git_path=".",
+        build_config=None,
+        deploy_config=None,
+        filestore=None,
+        redeploy_schedule=None,
+        alerter_bundle=None,
     ):
         self.name = name
         self.graph = graph
@@ -39,12 +50,27 @@ class DbtSchedule(YamlFileObject):
         self.deploy_config = deploy_config or {}
         self.filestore = filestore
         self.redeploy_schedule = redeploy_schedule
+        self.alerter_bundle = alerter_bundle
+
+    def handle_event(
+        self, alert_event: str, success: bool, message: str, metadata=None
+    ):
+        """Broadcast this event to the alert bundler if present."""
+        if self.alerter_bundle:
+            self.alerter_bundle.handle_event(
+                alert_event=alert_event,
+                success=success,
+                message=message,
+                metadata=metadata,
+            )
 
     def get_schema(self, schema):
         try:
             return self.graph.nodes[schema]["schema"]
         except KeyError:
-            raise click.ClickException(f"Schema {schema!r} is referred to but is not defined.")
+            raise click.ClickException(
+                f"Schema {schema!r} is referred to but is not defined."
+            )
 
     def iter_schemas(self):
         for node_name in self.graph.nodes:
@@ -69,16 +95,12 @@ class DbtSchedule(YamlFileObject):
         dependent_schemas = set()
         for changed_schema in changed_schemas:
             dependent_schemas |= nx.algorithms.dag.descendants(
-                self.graph,
-                changed_schema
+                self.graph, changed_schema
             )
         return dependent_schemas
 
     def materialized_schemas(self):
-        return set(
-            name for name, schema in self.iter_schemas()
-            if schema.materialized
-        )
+        return set(name for name, schema in self.iter_schemas() if schema.materialized)
 
     def _determine_deploy_order(self, schemas):
         deploy_order = []
@@ -89,9 +111,7 @@ class DbtSchedule(YamlFileObject):
 
     def _plan_from_changed_files(self, changed_files, deploy=True):
         """Generate a plan of attack from changed files."""
-        schema_files, unmatched_files = self._match_changed_files(
-            changed_files
-        )
+        schema_files, unmatched_files = self._match_changed_files(changed_files)
         changed_schemas = {*schema_files.keys()}
         # Filter only to materialized schemas using set operators
         deploy_schemas = self._get_dependent_schemas(*changed_schemas)
@@ -111,7 +131,7 @@ class DbtSchedule(YamlFileObject):
             "dependent_deploy_schemas": deploy_schemas,
             "deploy_order": self._determine_deploy_order(
                 changed_schemas | deploy_schemas
-            )
+            ),
         }
 
     def redeploy_due(self, last_refresh):
@@ -131,7 +151,7 @@ class DbtSchedule(YamlFileObject):
         ]
         return {
             "redeploy_due": self.redeploy_due(last_redeploy),
-            "refreshes_due": self._determine_deploy_order(refresh_due_schemas)
+            "refreshes_due": self._determine_deploy_order(refresh_due_schemas),
         }
 
     def status_dict(self, deploy=True):
@@ -158,11 +178,21 @@ class DbtSchedule(YamlFileObject):
             "dirty_tree": git_status["dirty"],
             "changed_files": changed_files,
             **refreshes_due,
-            **plan_dict
+            **plan_dict,
         }
 
     @classmethod
-    def from_dict(cls, config, warehouse=None, target_dict=None, project=None, project_dir=".", target_name=None, filestore=None, **kwargs):
+    def from_dict(
+        cls,
+        config,
+        warehouse=None,
+        target_dict=None,
+        project=None,
+        project_dir=".",
+        target_name=None,
+        filestore=None,
+        **kwargs,
+    ):
         """Load a schedule from a dict."""
         # Set up the graph
         dag = nx.DiGraph()
@@ -170,9 +200,7 @@ class DbtSchedule(YamlFileObject):
             schema = DbtSchema.from_dict(name=name, config=schema_config)
             dag.add_node(name, schema=schema)
             if "depends_on" in schema_config:
-                dag.add_edges_from([
-                    (s, name) for s in schema_config["depends_on"]
-                ])
+                dag.add_edges_from([(s, name) for s in schema_config["depends_on"]])
         if not nx.algorithms.dag.is_directed_acyclic_graph(dag):
             raise NotDagException("Not a DAG!")
 
@@ -189,7 +217,9 @@ class DbtSchedule(YamlFileObject):
                 profiles_dir = os.path.expanduser("~/.dbt/")
                 # TODO: Probably needs much more exception handling.
                 # TODO: Deal with jinja templating too.
-                profiles = DbtProfiles.from_path(path=profiles_dir, profile=project.profile_name)
+                profiles = DbtProfiles.from_path(
+                    path=profiles_dir, profile=project.profile_name
+                )
                 target_dict = profiles.get_target_dict(target=target_name)
 
             warehouse = get_warehouse_from_target(target_dict)
@@ -220,5 +250,11 @@ class DbtSchedule(YamlFileObject):
         # Add redeploy schedule if present
         if "redeploy_schedule" in config:
             schedule_kwargs["redeploy_schedule"] = config["redeploy_schedule"]
+
+        # Add redeploy schedule if present
+        if "alert" in config:
+            schedule_kwargs["alerter_bundle"] = AlterterBundle.from_config(
+                config["alert"]
+            )
 
         return cls(**schedule_kwargs)
