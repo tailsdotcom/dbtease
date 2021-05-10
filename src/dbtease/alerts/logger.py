@@ -3,7 +3,6 @@
 import logging
 
 from typing import List
-from abc import ABC, abstractmethod
 
 from dbtease.alerts.base import Alerter
 
