@@ -1,0 +1,2 @@
+include README.md LICENSE.md CHANGELOG.md
+include src/dbtease/config.ini
