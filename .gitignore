@@ -1,8 +1,15 @@
+# Python cache
 *.egg-info
 .pytest_cache
 __pycache__
 
+# State files
 /state.json
 /Pipfile.lock
 /Pipfile
+
+# Test schedules
 /dbt_schedule.yml
+
+# Packaged distributions
+/dist
