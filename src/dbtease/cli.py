@@ -281,8 +281,11 @@ def schemawise_refresh(deploy_plan, schedule, manifest, current_hash):
                 schedule.warehouse.create_wipe_db(build_db)
                 # If it's a materialised schema, clone the live version into it
                 if schema.materialized:
-                    for sch in schema.schemas:
-                        click.secho(f"Cloning live schema: {sch!r}", fg="bright_blue")
+                    for idx, sch in enumerate(schema.schemas):
+                        click.secho(
+                            f"Cloning live schema: {sch!r} [{idx + 1}/{len(schema.schemas)}]",
+                            fg="bright_blue",
+                        )
                         schedule.warehouse.clone_schema(
                             sch, build_db, source=schedule.deploy_config["database"]
                         )
@@ -362,8 +365,11 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
                 )
 
                 # Build each schema individually, but deploy in one transaction.
-                for schema_name in deploy_order:
-                    click.secho(f"BUILDING: {schema_name}", fg="cyan")
+                for idx, schema_name in enumerate(deploy_order):
+                    click.secho(
+                        f"BUILDING: {schema_name} [{idx + 1}/{len(deploy_order)}]",
+                        fg="cyan",
+                    )
                     schema = schedule.get_schema(schema_name)
                     # run dbt seed
                     cli_run_dbt_command(
