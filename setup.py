@@ -88,6 +88,7 @@ setup(
         "snowflake-connector-python",
         "slack_sdk",
         "boto3",
+        "jinja2<3.0.0",
     ],
     entry_points={
         "console_scripts": [
