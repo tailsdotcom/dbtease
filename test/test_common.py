@@ -30,6 +30,8 @@ def test__simple_yaml_load():
         ("foo", "foo"),
         ("some{# comment #}thing", "something"),
         ("{% for elem in ['foo', 'bar']%}{{elem}}{% endfor %}", "foobar"),
+        # This assumes that SOME_ENV_VALUE doesn't actually exist.
+        ("{{ env_var('SOME_ENV_VALUE', default='baz') }}", "baz"),
     ]
 )
 def test__common_jinja_template(test_input, expected):
