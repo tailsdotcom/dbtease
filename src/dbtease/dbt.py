@@ -60,6 +60,7 @@ class DbtProfiles(YamlFileObject):
 class DbtProject(YamlFileObject):
 
     default_file_name = "dbt_project.yml"
+    templated = False
 
     def __init__(self, package_name, profile_name):
         self.package_name = package_name
