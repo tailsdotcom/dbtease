@@ -26,6 +26,8 @@ class YamlFileObject:
     @classmethod
     def from_path(cls, path, fname=None, **kwargs):
         """Load a file from a path."""
+        # Expand user if relevant.
+        path = os.path.expanduser(path)
         return cls.from_file(
             fname=os.path.join(path, fname or cls.default_file_name), **kwargs
         )
