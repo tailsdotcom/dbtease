@@ -205,6 +205,11 @@ class DbtSchedule(YamlFileObject):
         if not nx.algorithms.dag.is_directed_acyclic_graph(dag):
             raise NotDagException("Not a DAG!")
 
+        # First precedence is override, then file config, then default.
+        profiles_dir = (
+            profiles_dir or kwargs.get("dbt_profiles_path", None) or "~/.dbt/"
+        )
+
         # Make sure we've got a project
         if not project:
             # Load project
@@ -214,10 +219,6 @@ class DbtSchedule(YamlFileObject):
         if not warehouse:
             # Get the details of the target from the profiles file if not provided.
             if not target_dict:
-                # First precedence is override, then file config, then default.
-                profiles_dir = (
-                    profiles_dir or kwargs.get("dbt_profiles_path", None) or "~/.dbt/"
-                )
                 # TODO: Probably needs much more exception handling.
                 # TODO: Deal with jinja templating too.
                 profiles = DbtProfiles.from_path(

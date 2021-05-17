@@ -68,9 +68,13 @@ class DbtProject(YamlFileObject):
         self.profiles_dir = os.path.expanduser(profiles_dir)
 
     @classmethod
-    def from_dict(cls, config):
+    def from_dict(cls, config, profiles_dir="~/.dbt/"):
         """Load a project from a dict."""
-        return cls(package_name=config["name"], profile_name=config["profile"])
+        return cls(
+            package_name=config["name"],
+            profile_name=config["profile"],
+            profiles_dir=profiles_dir
+        )
 
     def generate_profiles_yml(self, database=None, target=None):
         parent_profiles = DbtProfiles.from_path(
