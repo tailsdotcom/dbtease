@@ -208,7 +208,7 @@ class DbtSchedule(YamlFileObject):
         # Make sure we've got a project
         if not project:
             # Load project
-            project = DbtProject.from_path(project_dir)
+            project = DbtProject.from_path(project_dir, profiles_dir=profiles_dir)
 
         # Set up the state warehouse connection:
         if not warehouse:
