@@ -77,7 +77,8 @@ def status(project_dir, profiles_dir, schedule_dir):
 @click.option("--profiles-dir", default="~/.dbt/")
 @click.option("--schedule-dir", default=None)
 @click.option("--database", default=None)
-def test(project_dir, profiles_dir, schedule_dir, database):
+@click.option("--append-commit-to-db", is_flag=True)
+def test(project_dir, profiles_dir, schedule_dir, database, append_commit_to_db):
     """Tests the current active changes."""
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
     # Output the status.
@@ -90,6 +91,10 @@ def test(project_dir, profiles_dir, schedule_dir, database):
         return
 
     build_db = database or schedule.project.get_default_database()
+    if append_commit_to_db:
+        # Use the first eight characters of the hash only because otherwise it gets really long.
+        build_db += "_" + current_hash[:8]
+
     file_dict = {
         "profiles.yml": schedule.project.generate_profiles_yml(database=build_db, schema=schedule.schema_prefix)
     }
