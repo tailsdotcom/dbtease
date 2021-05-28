@@ -45,6 +45,7 @@ def echo_status(status_dict, project_name):
         ("Deployment Plan", ", ".join(status_dict["deploy_order"])),
         ("Redeploy Due", status_dict["redeploy_due"]),
         ("Refreshes Due", ", ".join(status_dict["refreshes_due"])),
+        ("Triggers Full Deploy", status_dict["trigger_full_deploy"])
     ]
     for label, value in config_pairs:
         click.echo(f"{label:22} - {value}")
@@ -599,9 +600,11 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
                 click.secho("Manifests disgaree. Forcing Full deploy.", fg="yellow")
                 force = True
 
-    if not deployed_hash or force:
+    if not deployed_hash or force or status_dict["trigger_full_deploy"]:
         if force:
             full_reason = "Forcing a full deploy."
+        elif status_dict["trigger_full_deploy"]:
+            full_reason = "Full deploy triggered by a changed schema."
         else:
             full_reason = "No current deployment. This forces a full deploy."
         click.secho(

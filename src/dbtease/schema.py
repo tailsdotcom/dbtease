@@ -15,6 +15,7 @@ class DbtSchema:
         materialized=False,
         build=None,
         schemas=None,
+        triggers_full_deploy=False,
     ):
         self.name = name
         self.paths = paths
@@ -23,6 +24,7 @@ class DbtSchema:
         self.materialized = materialized
         self.build_config = build or {}
         self.schemas = schemas or [name]
+        self.triggers_full_deploy = triggers_full_deploy
         if self.materialized and not self.schedule:
             raise ValueError(f"Schema {self.name} is materialized but has no schedule!")
 

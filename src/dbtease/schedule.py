@@ -126,14 +126,16 @@ class DbtSchedule(YamlFileObject):
         # NOTE: This is not necessarily deterministic in the case
         # that nodes have the same level in the tree, but I don't think
         # that really matters at this stage.
+        matched_schemas = changed_schemas | deploy_schemas
         return {
             "unmatched_files": unmatched_files,
             "matched_files": schema_files,
             "changed_schemas": changed_schemas,
             "dependent_deploy_schemas": deploy_schemas,
             "deploy_order": self._determine_deploy_order(
-                changed_schemas | deploy_schemas
+                matched_schemas
             ),
+            "trigger_full_deploy": any(self.get_schema(sch).triggers_full_deploy for sch in matched_schemas)
         }
 
     def redeploy_due(self, last_refresh):
