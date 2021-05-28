@@ -39,6 +39,7 @@ class DbtSchedule(YamlFileObject):
         filestore=None,
         redeploy_schedule=None,
         alerter_bundle=None,
+        schema_prefix=None,
     ):
         self.name = name
         self.graph = graph
@@ -51,6 +52,7 @@ class DbtSchedule(YamlFileObject):
         self.filestore = filestore
         self.redeploy_schedule = redeploy_schedule
         self.alerter_bundle = alerter_bundle
+        self.schema_prefix = schema_prefix
 
     def handle_event(
         self, alert_event: str, success: bool, message: str, metadata=None
@@ -244,6 +246,10 @@ class DbtSchedule(YamlFileObject):
         # Use the git path if provided.
         if "git_path" in config:
             schedule_kwargs["git_path"] = config["git_path"]
+
+        # Use schema prefix if provided.
+        if "schema_prefix" in config:
+            schedule_kwargs["schema_prefix"] = config["schema_prefix"]
 
         # Add build and deploy configs if present.
         if "deploy" in config:

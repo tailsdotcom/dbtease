@@ -90,7 +90,7 @@ def test(project_dir, profiles_dir, schedule_dir, database):
 
     build_db = database or schedule.project.get_default_database()
     file_dict = {
-        "profiles.yml": schedule.project.generate_profiles_yml(database=build_db)
+        "profiles.yml": schedule.project.generate_profiles_yml(database=build_db, schema=schedule.schema_prefix)
     }
 
     if not deployed_hash:
@@ -263,7 +263,8 @@ def schemawise_refresh(deploy_plan, schedule, manifest, current_hash):
         with ConfigContext(
             file_dict={
                 "profiles.yml": schedule.project.generate_profiles_yml(
-                    database=build_db
+                    database=build_db,
+                    schema=schedule.schema_prefix,
                 ),
                 "manifest.json": manifest,
             }
@@ -332,7 +333,8 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
         file_dict={
             # Use build context first
             "profiles.yml": schedule.project.generate_profiles_yml(
-                database=schedule.build_config["database"]
+                database=schedule.build_config["database"],
+                schema=schedule.schema_prefix,
             )
         }
     ) as ctx:
@@ -431,7 +433,8 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
         with ctx.patch_files(
             {
                 "profiles.yml": schedule.project.generate_profiles_yml(
-                    database=schedule.deploy_config["database"]
+                    database=schedule.deploy_config["database"],
+                    schema=schedule.schema_prefix,
                 )
             }
         ):
@@ -558,7 +561,8 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
             file_dict={
                 # Use deploy context
                 "profiles.yml": schedule.project.generate_profiles_yml(
-                    database=schedule.deploy_config["database"]
+                    database=schedule.deploy_config["database"],
+                    schema=schedule.schema_prefix,
                 )
             }
         ) as ctx:

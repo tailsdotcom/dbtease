@@ -38,7 +38,7 @@ class DbtProfiles(YamlFileObject):
         assert target_dict["type"] == "snowflake"
         return target_dict
 
-    def generate_patched_yml(self, database=None, target=None):
+    def generate_patched_yml(self, database=None, schema=None, target=None):
         new_profiles_obj = copy.deepcopy(self.profiles_obj)
         # Get detault target if not set
         target = target or new_profiles_obj[self.profile]["target"]
@@ -49,6 +49,9 @@ class DbtProfiles(YamlFileObject):
         # Patch database (if provided)
         if database:
             new_profiles_obj[self.profile]["outputs"][target]["database"] = database
+        # Patch schema (if provided)
+        if schema:
+            new_profiles_obj[self.profile]["outputs"][target]["schema"] = schema
         return yaml.dump(new_profiles_obj)
 
     def get_default_database(self, target=None):
@@ -76,11 +79,11 @@ class DbtProject(YamlFileObject):
             profiles_dir=profiles_dir
         )
 
-    def generate_profiles_yml(self, database=None, target=None):
+    def generate_profiles_yml(self, database=None, schema=None, target=None):
         parent_profiles = DbtProfiles.from_path(
             path=self.profiles_dir, profile=self.profile_name
         )
-        return parent_profiles.generate_patched_yml(database=database, target=target)
+        return parent_profiles.generate_patched_yml(database=database, schema=schema, target=target)
 
     def get_default_database(self, target=None):
         parent_profiles = DbtProfiles.from_path(
