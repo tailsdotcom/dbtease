@@ -1,5 +1,6 @@
 """Local Filestore Class."""
 
+import logging
 import os
 import os.path
 
@@ -17,6 +18,7 @@ class LocalFilestore(Filestore):
         try:
             self._upload_filestr(".testfile", "test")
         except Exception as err:
+            logging.error(err)
             return False
         return True
 

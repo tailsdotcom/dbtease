@@ -30,7 +30,7 @@ class S3Filestore(Filestore):
         s3_client = session.client("s3")
         file_obj = io.BytesIO(content.encode("utf8"))
         try:
-            response = s3_client.upload_fileobj(
+            s3_client.upload_fileobj(
                 file_obj, self.bucket, self.path + fname
             )
         except ClientError as e:
@@ -43,7 +43,7 @@ class S3Filestore(Filestore):
         for path in paths:
             _, fname = os.path.split(path)
             try:
-                response = s3_client.upload_file(path, self.bucket, self.path + fname)
+                s3_client.upload_file(path, self.bucket, self.path + fname)
             except ClientError as e:
                 logging.error(e)
                 raise e
