@@ -96,6 +96,23 @@ def get_compiled_manifest(schedule):
         return new_manifest
 
 
+def generate_plan(schedule, status_dict):
+    """Generate a plan from a manifest diff."""
+    # Fetch manifest of current live build
+    live_manifest = schedule.warehouse.fetch_manifest(schedule.name, status_dict["deployed_hash"])
+    # Compiled Manifest
+    new_manifest = get_compiled_manifest(schedule)
+    node_diff = diff_manifests(live_manifest, new_manifest)
+    
+    paths = [path for _, path in node_diff]
+    plan = schedule.generate_plan_from_paths(paths)
+    if not node_diff:
+        click.secho("NO MODELS CHANGED", fg="green")
+    else:
+        echo_plan(plan)
+    return plan, new_manifest
+
+
 @cli.command()
 @click.option("--project-dir", default=".")
 @click.option("--profiles-dir", default="~/.dbt/")
@@ -110,19 +127,7 @@ def status(project_dir, profiles_dir, schedule_dir):
         return
 
     click.secho("Hash differs or tree is dirty. Generating a manifest...\n", fg="cyan")
-    # Fetch manifest of current live build
-    live_manifest = schedule.warehouse.fetch_manifest(schedule.name, status_dict["deployed_hash"])
-    # Compiled Manifest
-    new_manifest = get_compiled_manifest(schedule)
-    node_diff = diff_manifests(live_manifest, new_manifest)
-    if not node_diff:
-        click.secho("NO MODELS CHANGED", fg="green")
-        return
-
-    click.secho("\n\n=== Nodes Changed ===", fg="yellow")
-    paths = [path for _, path in node_diff]
-    plan = schedule.generate_plan_from_paths(paths)
-    echo_plan(plan)
+    generate_plan(schedule, status_dict)
 
 
 @cli.command()
@@ -609,59 +614,42 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         raise click.UsageError(
             "This commit is already deployed. To refresh, " "run `dbtease refresh`."
         )
-    if deployed_hash and not force and not status_dict["deploy_order"]:
-        click.secho(
-            "This commit changes no detectable models. Verifying Manifest...",
-            fg="yellow",
-        )
-        # Fetch manifest of current live build
-        manifest = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
-        with ConfigContext(
-            file_dict={
-                # Use deploy context
-                "profiles.yml": schedule.project.generate_profiles_yml(
-                    database=schedule.deploy_config["database"],
-                    schema=schedule.schema_prefix,
-                )
-            }
-        ) as ctx:
-            profile_args = ["--profiles-dir", str(ctx)]
-            # dbt deps
-            cli_run_dbt_command(["deps"])
-            # Compile to generate manifest
-            cli_run_dbt_command(["compile"] + profile_args)
-            # Stash the docs and the manifest
-            ctx.stash_files("target/manifest.json")
-            # Get manifest
-            new_manifest = ctx.read_file("manifest.json")
-            # is it the same
-            if ctx.compare_manifests(manifest, new_manifest):
-                click.secho("Manifests agree.", fg="green")
-                # Build docs and update manifest.
-                click.secho("Updating Manifest.", fg="bright_blue")
-                schedule.warehouse.deploy_manifest(
-                    project_name=schedule.name,
-                    commit_hash=current_hash,
-                    manifest=manifest,
-                    update_commit=True,
-                )
-                schedule.handle_event(
-                    "deploy_success",
-                    success=True,
-                    message="Successful Non-Project Deploy",
-                    metadata={"hash": current_hash},
-                )
-                click.secho("DONE", fg="green")
-                return
-            else:
-                # Maybe we could be smarter here, by *using* the difference in the manifest.
-                click.secho("Manifests disgaree. Forcing Full deploy.", fg="yellow")
-                force = True
 
-    if not deployed_hash or force or status_dict["trigger_full_deploy"]:
+    deploy_order = []
+    trigger_full_deploy = False
+
+    if deployed_hash and not force:
+        click.secho(
+            "\nGenerating Manifest to plan deploy...",
+            fg="cyan",
+        )
+        plan, manifest = generate_plan(schedule, status_dict)
+        deploy_order = plan["deploy_order"]
+        trigger_full_deploy = plan["trigger_full_deploy"]
+
+        if not deploy_order:
+            click.secho("Manifest indicates no model changes....", fg="green")
+            # Build docs and update manifest.
+            click.secho("\nUpdating Manifest.", fg="bright_blue")
+            schedule.warehouse.deploy_manifest(
+                project_name=schedule.name,
+                commit_hash=current_hash,
+                manifest=manifest,
+                update_commit=True,
+            )
+            schedule.handle_event(
+                "deploy_success",
+                success=True,
+                message="Successful Non-Project Deploy",
+                metadata={"hash": current_hash},
+            )
+            click.secho("\nDONE", fg="green")
+            return
+
+    if not deployed_hash or force or trigger_full_deploy:
         if force:
             full_reason = "Forcing a full deploy."
-        elif status_dict["trigger_full_deploy"]:
+        elif trigger_full_deploy:
             full_reason = "Full deploy triggered by a changed schema."
         else:
             full_reason = "No current deployment. This forces a full deploy."
@@ -672,13 +660,13 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         defer_to_state = False
     else:
         click.secho(
-            f"ATTEMPTING PARTIAL DEPLOY: {', '.join(status_dict['deploy_order'])}",
+            f"ATTEMPTING PARTIAL DEPLOY: {', '.join(deploy_order)}",
             fg="cyan",
         )
         defer_to_state = True
 
     # Do the deploy.
-    database_deploy(schedule, current_hash, defer_to_state, status_dict["deploy_order"])
+    database_deploy(schedule, current_hash, defer_to_state, deploy_order)
     click.secho("DONE", fg="green")
 
 
