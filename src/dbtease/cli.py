@@ -1,3 +1,5 @@
+"""CLI methods."""
+
 import click
 import logging
 import sys
@@ -7,6 +9,8 @@ from dbtease.schedule import DbtSchedule
 
 from dbtease.config_context import ConfigContext
 from dbtease.shell import run_shell_command
+
+from dbtease.dbt import diff_manifests
 
 
 # Set up logging properly
@@ -42,23 +46,54 @@ def echo_status(status_dict, project_name):
         ("Deployed Hash", status_dict["deployed_hash"]),
         ("Current Hash", status_dict["current_hash"]),
         ("Uncommitted Changes", status_dict["dirty_tree"]),
-        ("Deployment Plan", ", ".join(status_dict["deploy_order"])),
         ("Redeploy Due", status_dict["redeploy_due"]),
         ("Refreshes Due", ", ".join(status_dict["refreshes_due"])),
-        ("Triggers Full Deploy", status_dict["trigger_full_deploy"])
+    ]
+    for label, value in config_pairs:
+        click.echo(f"{label:22} - {value}")
+    click.echo("===")
+
+
+def echo_plan(plan_dict):
+    click.echo("=== deploy plan ===")
+    config_pairs = [
+        ("Deployment Plan", ", ".join(plan_dict["deploy_order"])),
+        ("Triggers Full Deploy", plan_dict["trigger_full_deploy"])
     ]
     for label, value in config_pairs:
         click.echo(f"{label:22} - {value}")
     # Output Files affected
-    if status_dict["unmatched_files"]:
-        click.echo("== non-project file changes ==")
-        for fname in status_dict["unmatched_files"]:
+    if plan_dict["unmatched_files"]:
+        click.secho("== unmatched files ==", fg="red")
+        for fname in plan_dict["unmatched_files"]:
             click.echo(f"- {fname}")
-    for schema_name in status_dict["matched_files"]:
-        click.echo(f"== schema: {schema_name} ==")
-        for fname in status_dict["matched_files"][schema_name]:
+    for schema_name in plan_dict["matched_files"]:
+        click.secho(f"== schema: {schema_name} ==", fg="yellow")
+        for fname in plan_dict["matched_files"][schema_name]:
             click.echo(f"- {fname}")
     click.echo("===")
+
+
+def get_compiled_manifest(schedule):
+    with ConfigContext(
+        file_dict={
+            # Use deploy context
+            "profiles.yml": schedule.project.generate_profiles_yml(
+                database=schedule.deploy_config["database"],
+                schema=schedule.schema_prefix,
+            )
+        }
+    ) as ctx:
+        profile_args = ["--profiles-dir", str(ctx)]
+        # dbt deps
+        cli_run_dbt_command(["deps"])
+        # Compile to generate manifest
+        cli_run_dbt_command(["compile"] + profile_args)
+        # Stash the docs and the manifest
+        ctx.stash_files("target/manifest.json")
+        # Get manifest
+        new_manifest = ctx.read_file("manifest.json")
+        return new_manifest
 
 
 @cli.command()
@@ -70,6 +105,24 @@ def status(project_dir, profiles_dir, schedule_dir):
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
     # Output the status.
     echo_status(status_dict, schedule.name)
+    if status_dict["current_hash"] == status_dict["deployed_hash"] and not status_dict["dirty_tree"]:
+        click.secho("ON CURRENT LIVE COMMIT", fg="green")
+        return
+
+    click.secho("Hash differs or tree is dirty. Generating a manifest...\n", fg="cyan")
+    # Fetch manifest of current live build
+    live_manifest = schedule.warehouse.fetch_manifest(schedule.name, status_dict["deployed_hash"])
+    # Compiled Manifest
+    new_manifest = get_compiled_manifest(schedule)
+    node_diff = diff_manifests(live_manifest, new_manifest)
+    if not node_diff:
+        click.secho("NO MODELS CHANGED", fg="green")
+        return
+
+    click.secho("\n\n=== Nodes Changed ===", fg="yellow")
+    paths = [path for _, path in node_diff]
+    plan = schedule.generate_plan_from_paths(paths)
+    echo_plan(plan)
 
 
 @cli.command()
