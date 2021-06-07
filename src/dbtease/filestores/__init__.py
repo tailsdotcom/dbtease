@@ -15,7 +15,7 @@ _filestore_options = {
 }
 
 
-def get_filestore_from_config(filestore_config):
+def get_filestore_from_config(filestore_config, **kwargs):
     # Get the first config type in the config
     if not filestore_config:
         return None
@@ -24,4 +24,4 @@ def get_filestore_from_config(filestore_config):
         raise ValueError(
             f"Filestore of type {filestore_type} are not supported yet in dbtease."
         )
-    return _filestore_options[filestore_type].from_dict(config)
+    return _filestore_options[filestore_type].from_dict(config, **kwargs)

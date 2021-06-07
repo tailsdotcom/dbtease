@@ -1,6 +1,5 @@
 """Routines for loading the dbt_schedule.yml file."""
 
-import os.path
 import networkx as nx
 import logging
 import click
@@ -80,11 +79,12 @@ class DbtSchedule(YamlFileObject):
 
     def _iter_affected_schemas(self, paths):
         for _, schema in self.iter_schemas():
-            matched_paths = schema.matches_paths(paths, git_path=self.git_path)
+            matched_paths = schema.matches_paths(paths)
             if matched_paths:
                 yield schema, matched_paths
 
     def _match_changed_files(self, changed_files):
+        changed_files = set(changed_files)
         matched_files = set()
         schema_files = {}
         for schema, files in self._iter_affected_schemas(paths=changed_files):
@@ -132,10 +132,10 @@ class DbtSchedule(YamlFileObject):
             "matched_files": schema_files,
             "changed_schemas": changed_schemas,
             "dependent_deploy_schemas": deploy_schemas,
-            "deploy_order": self._determine_deploy_order(
-                matched_schemas
+            "deploy_order": self._determine_deploy_order(matched_schemas),
+            "trigger_full_deploy": any(
+                self.get_schema(sch).triggers_full_deploy for sch in matched_schemas
             ),
-            "trigger_full_deploy": any(self.get_schema(sch).triggers_full_deploy for sch in matched_schemas)
         }
 
     def redeploy_due(self, last_refresh):
@@ -165,25 +165,18 @@ class DbtSchedule(YamlFileObject):
         # Evaluate refreshes due
         refreshes_due = self.evaluate_schedules()
         # Introspect git status
-        git_status = get_git_state(deployed_hash=deployed_hash, repo_dir=self.git_path)
-        # Make a plan from the changed files
-        changed_files = git_status["diff"] | git_status["untracked"]
-        # Adjust for project dir if we need to.
-        if self.project_dir:
-            changed_files = {
-                os.path.relpath(fpath, self.project_dir)
-                for fpath in changed_files
-                if os.path.abspath(fpath).startswith(os.path.abspath(self.project_dir))
-            }
-        plan_dict = self._plan_from_changed_files(changed_files, deploy=deploy)
+        git_status = get_git_state(repo_dir=self.git_path)
         return {
             "deployed_hash": deployed_hash,
             "current_hash": git_status["commit_hash"],
             "dirty_tree": git_status["dirty"],
-            "changed_files": changed_files,
             **refreshes_due,
-            **plan_dict,
         }
+
+    def generate_plan_from_paths(self, changed_files, deploy=True):
+        """From differing paths, determine a plan."""
+        # Adjust for project dir if we need to.
+        return self._plan_from_changed_files(changed_files, deploy=deploy)
 
     @classmethod
     def from_dict(
@@ -196,6 +189,7 @@ class DbtSchedule(YamlFileObject):
         target_name=None,
         filestore=None,
         profiles_dir=None,
+        aws_profile=None,
         **kwargs,
     ):
         """Load a schedule from a dict."""
@@ -234,7 +228,9 @@ class DbtSchedule(YamlFileObject):
 
         if not filestore:
             if "docs" in config:
-                filestore = get_filestore_from_config(config["docs"])
+                filestore = get_filestore_from_config(
+                    config["docs"], aws_profile=aws_profile
+                )
 
         # Config kwargs
         schedule_kwargs = {
