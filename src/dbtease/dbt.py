@@ -11,13 +11,17 @@ from dbtease.common import YamlFileObject
 def diff_manifests(live_manifest, local_manifest):
     live_manifest_obj = json.loads(live_manifest)
     local_manifest_obj = json.loads(local_manifest)
-    node_names = set(live_manifest_obj["nodes"].keys()) | set(local_manifest_obj["nodes"].keys())
+    node_names = set(live_manifest_obj["nodes"].keys()) | set(
+        local_manifest_obj["nodes"].keys()
+    )
     # A list of (node, path) tuples
     changed_nodes = []
     for node in node_names:
         live_node = live_manifest_obj["nodes"].get(node, {})
         local_node = local_manifest_obj["nodes"].get(node, {})
-        path = live_node.get("original_file_path", None) or local_node.get("original_file_path", None)
+        path = live_node.get("original_file_path", None) or local_node.get(
+            "original_file_path", None
+        )
         # Compare checksums
         if live_node.get("checksum", None) != local_node.get("checksum", None):
             changed_nodes.append((node, path))
@@ -93,14 +97,16 @@ class DbtProject(YamlFileObject):
         return cls(
             package_name=config["name"],
             profile_name=config["profile"],
-            profiles_dir=profiles_dir
+            profiles_dir=profiles_dir,
         )
 
     def generate_profiles_yml(self, database=None, schema=None, target=None):
         parent_profiles = DbtProfiles.from_path(
             path=self.profiles_dir, profile=self.profile_name
         )
-        return parent_profiles.generate_patched_yml(database=database, schema=schema, target=target)
+        return parent_profiles.generate_patched_yml(
+            database=database, schema=schema, target=target
+        )
 
     def get_default_database(self, target=None):
         parent_profiles = DbtProfiles.from_path(

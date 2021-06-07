@@ -132,10 +132,10 @@ class DbtSchedule(YamlFileObject):
             "matched_files": schema_files,
             "changed_schemas": changed_schemas,
             "dependent_deploy_schemas": deploy_schemas,
-            "deploy_order": self._determine_deploy_order(
-                matched_schemas
+            "deploy_order": self._determine_deploy_order(matched_schemas),
+            "trigger_full_deploy": any(
+                self.get_schema(sch).triggers_full_deploy for sch in matched_schemas
             ),
-            "trigger_full_deploy": any(self.get_schema(sch).triggers_full_deploy for sch in matched_schemas)
         }
 
     def redeploy_due(self, last_refresh):
@@ -189,6 +189,7 @@ class DbtSchedule(YamlFileObject):
         target_name=None,
         filestore=None,
         profiles_dir=None,
+        aws_profile=None,
         **kwargs,
     ):
         """Load a schedule from a dict."""
@@ -227,7 +228,9 @@ class DbtSchedule(YamlFileObject):
 
         if not filestore:
             if "docs" in config:
-                filestore = get_filestore_from_config(config["docs"])
+                filestore = get_filestore_from_config(
+                    config["docs"], aws_profile=aws_profile
+                )
 
         # Config kwargs
         schedule_kwargs = {

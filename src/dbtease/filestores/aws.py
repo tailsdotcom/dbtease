@@ -1,5 +1,6 @@
 """S3 Filestore Class."""
 
+import io
 import os.path
 import logging
 
@@ -13,7 +14,7 @@ from dbtease.filestores.base import Filestore
 class S3Filestore(Filestore):
     """S3 Filestore Connection."""
 
-    def __init__(self, path, profile=None):
+    def __init__(self, path, aws_profile=None):
         # trim the initial off it
         if path.lower().startswith("s3://"):
             path = path[5:]
@@ -22,7 +23,19 @@ class S3Filestore(Filestore):
         if not self.path.endswith("/"):
             path += "/"
         # Optionally accept a profile argument
-        self.profile = profile
+        self.profile = aws_profile
+
+    def _upload_filestr(self, fname, content):
+        session = boto3.Session(profile_name=self.profile)
+        s3_client = session.client("s3")
+        file_obj = io.BytesIO(content.encode("utf8"))
+        try:
+            response = s3_client.upload_fileobj(
+                file_obj, self.bucket, self.path + fname
+            )
+        except ClientError as e:
+            logging.error(e)
+            raise e
 
     def upload_files(self, *paths: str):
         session = boto3.Session(profile_name=self.profile)
@@ -33,5 +46,4 @@ class S3Filestore(Filestore):
                 response = s3_client.upload_file(path, self.bucket, self.path + fname)
             except ClientError as e:
                 logging.error(e)
-                logging.error(response)
                 raise e

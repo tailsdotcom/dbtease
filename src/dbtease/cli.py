@@ -29,11 +29,16 @@ def cli():
     pass
 
 
-def common_setup(project_dir, profiles_dir, schedule_dir, deploy=True):
+def common_setup(
+    project_dir, profiles_dir, schedule_dir, deploy=True, aws_profile=None
+):
     schedule_dir = schedule_dir or project_dir
     # Load the schedule
     schedule = DbtSchedule.from_path(
-        schedule_dir, profiles_dir=profiles_dir, project_dir=project_dir
+        schedule_dir,
+        profiles_dir=profiles_dir,
+        project_dir=project_dir,
+        aws_profile=aws_profile,
     )
     status_dict = schedule.status_dict(deploy=deploy)
     return schedule, status_dict
@@ -58,7 +63,7 @@ def echo_plan(plan_dict):
     click.echo("=== deploy plan ===")
     config_pairs = [
         ("Deployment Plan", ", ".join(plan_dict["deploy_order"])),
-        ("Triggers Full Deploy", plan_dict["trigger_full_deploy"])
+        ("Triggers Full Deploy", plan_dict["trigger_full_deploy"]),
     ]
     for label, value in config_pairs:
         click.echo(f"{label:22} - {value}")
@@ -99,11 +104,13 @@ def get_compiled_manifest(schedule):
 def generate_plan(schedule, status_dict):
     """Generate a plan from a manifest diff."""
     # Fetch manifest of current live build
-    live_manifest = schedule.warehouse.fetch_manifest(schedule.name, status_dict["deployed_hash"])
+    live_manifest = schedule.warehouse.fetch_manifest(
+        schedule.name, status_dict["deployed_hash"]
+    )
     # Compiled Manifest
     new_manifest = get_compiled_manifest(schedule)
     node_diff = diff_manifests(live_manifest, new_manifest)
-    
+
     paths = [path for _, path in node_diff]
     plan = schedule.generate_plan_from_paths(paths)
     if not node_diff:
@@ -122,7 +129,10 @@ def status(project_dir, profiles_dir, schedule_dir):
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
     # Output the status.
     echo_status(status_dict, schedule.name)
-    if status_dict["current_hash"] == status_dict["deployed_hash"] and not status_dict["dirty_tree"]:
+    if (
+        status_dict["current_hash"] == status_dict["deployed_hash"]
+        and not status_dict["dirty_tree"]
+    ):
         click.secho("ON CURRENT LIVE COMMIT", fg="green")
         return
 
@@ -154,7 +164,9 @@ def test(project_dir, profiles_dir, schedule_dir, database, append_commit_to_db)
         build_db += "_" + current_hash[:8]
 
     file_dict = {
-        "profiles.yml": schedule.project.generate_profiles_yml(database=build_db, schema=schedule.schema_prefix)
+        "profiles.yml": schedule.project.generate_profiles_yml(
+            database=build_db, schema=schedule.schema_prefix
+        )
     }
 
     if not deployed_hash:
@@ -596,10 +608,13 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
 @click.option("--project-dir", default=".")
 @click.option("--profiles-dir", default="~/.dbt/")
 @click.option("--schedule-dir", default=None)
+@click.option("--aws-profile", default=None)
 @click.option("-f", "--force", is_flag=True, help="Force a full deploy cycle.")
-def deploy(project_dir, profiles_dir, schedule_dir, force):
+def deploy(project_dir, profiles_dir, schedule_dir, aws_profile, force):
     """Attempt to deploy the current commit as the new live version."""
-    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
+    schedule, status_dict = common_setup(
+        project_dir, profiles_dir, schedule_dir, aws_profile=aws_profile
+    )
     # Output the status.
     echo_status(status_dict, schedule.name)
     # Validate state
@@ -614,6 +629,13 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         raise click.UsageError(
             "This commit is already deployed. To refresh, " "run `dbtease refresh`."
         )
+
+    # Test permissions
+    if schedule.filestore:
+        if not schedule.filestore.check_access():
+            raise click.UsageError(
+                "Test upload failed. Confirm you have appropriate permissions to upload to filestore."
+            )
 
     deploy_order = []
     trigger_full_deploy = False
