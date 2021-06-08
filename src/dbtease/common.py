@@ -12,6 +12,7 @@ class YamlFileObject:
     """Common class for a yaml file object."""
 
     default_file_name = "default.yaml"
+    templated = True
 
     @classmethod
     def from_dict(cls, config, **kwargs):
@@ -59,7 +60,10 @@ class YamlFileObject:
 
         This applies jinja templating.
         """
-        rendered_string = cls._template_string(raw_string)
+        if cls.templated:
+            rendered_string = cls._template_string(raw_string)
+        else:
+            rendered_string = raw_string
         config_dict = yaml.safe_load(rendered_string)
         return cls.from_dict(config_dict, **kwargs)
 

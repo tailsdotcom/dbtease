@@ -1,3 +1,5 @@
+"""CLI methods."""
+
 import click
 import logging
 import sys
@@ -7,6 +9,8 @@ from dbtease.schedule import DbtSchedule
 
 from dbtease.config_context import ConfigContext
 from dbtease.shell import run_shell_command
+
+from dbtease.dbt import diff_manifests
 
 
 # Set up logging properly
@@ -25,11 +29,16 @@ def cli():
     pass
 
 
-def common_setup(project_dir, profiles_dir, schedule_dir, deploy=True):
+def common_setup(
+    project_dir, profiles_dir, schedule_dir, deploy=True, aws_profile=None
+):
     schedule_dir = schedule_dir or project_dir
     # Load the schedule
     schedule = DbtSchedule.from_path(
-        schedule_dir, profiles_dir=profiles_dir, project_dir=project_dir
+        schedule_dir,
+        profiles_dir=profiles_dir,
+        project_dir=project_dir,
+        aws_profile=aws_profile,
     )
     status_dict = schedule.status_dict(deploy=deploy)
     return schedule, status_dict
@@ -42,22 +51,73 @@ def echo_status(status_dict, project_name):
         ("Deployed Hash", status_dict["deployed_hash"]),
         ("Current Hash", status_dict["current_hash"]),
         ("Uncommitted Changes", status_dict["dirty_tree"]),
-        ("Deployment Plan", ", ".join(status_dict["deploy_order"])),
         ("Redeploy Due", status_dict["redeploy_due"]),
         ("Refreshes Due", ", ".join(status_dict["refreshes_due"])),
     ]
     for label, value in config_pairs:
         click.echo(f"{label:22} - {value}")
+    click.echo("===")
+
+
+def echo_plan(plan_dict):
+    click.echo("=== deploy plan ===")
+    config_pairs = [
+        ("Deployment Plan", ", ".join(plan_dict["deploy_order"])),
+        ("Triggers Full Deploy", plan_dict["trigger_full_deploy"]),
+    ]
+    for label, value in config_pairs:
+        click.echo(f"{label:22} - {value}")
     # Output Files affected
-    if status_dict["unmatched_files"]:
-        click.echo("== non-project file changes ==")
-        for fname in status_dict["unmatched_files"]:
+    if plan_dict["unmatched_files"]:
+        click.secho("== unmatched files ==", fg="red")
+        for fname in plan_dict["unmatched_files"]:
             click.echo(f"- {fname}")
-    for schema_name in status_dict["matched_files"]:
-        click.echo(f"== schema: {schema_name} ==")
-        for fname in status_dict["matched_files"][schema_name]:
+    for schema_name in plan_dict["matched_files"]:
+        click.secho(f"== schema: {schema_name} ==", fg="yellow")
+        for fname in plan_dict["matched_files"][schema_name]:
             click.echo(f"- {fname}")
     click.echo("===")
+
+
+def get_compiled_manifest(schedule):
+    with ConfigContext(
+        file_dict={
+            # Use deploy context
+            "profiles.yml": schedule.project.generate_profiles_yml(
+                database=schedule.deploy_config["database"],
+                schema=schedule.schema_prefix,
+            )
+        }
+    ) as ctx:
+        profile_args = ["--profiles-dir", str(ctx)]
+        # dbt deps
+        cli_run_dbt_command(["deps"])
+        # Compile to generate manifest
+        cli_run_dbt_command(["compile"] + profile_args)
+        # Stash the docs and the manifest
+        ctx.stash_files("target/manifest.json")
+        # Get manifest
+        new_manifest = ctx.read_file("manifest.json")
+        return new_manifest
+
+
+def generate_plan(schedule, status_dict):
+    """Generate a plan from a manifest diff."""
+    # Fetch manifest of current live build
+    live_manifest = schedule.warehouse.fetch_manifest(
+        schedule.name, status_dict["deployed_hash"]
+    )
+    # Compiled Manifest
+    new_manifest = get_compiled_manifest(schedule)
+    node_diff = diff_manifests(live_manifest, new_manifest)
+
+    paths = [path for _, path in node_diff]
+    plan = schedule.generate_plan_from_paths(paths)
+    if not node_diff:
+        click.secho("NO MODELS CHANGED", fg="green")
+    else:
+        echo_plan(plan)
+    return plan, new_manifest
 
 
 @cli.command()
@@ -69,6 +129,15 @@ def status(project_dir, profiles_dir, schedule_dir):
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
     # Output the status.
     echo_status(status_dict, schedule.name)
+    if (
+        status_dict["current_hash"] == status_dict["deployed_hash"]
+        and not status_dict["dirty_tree"]
+    ):
+        click.secho("ON CURRENT LIVE COMMIT", fg="green")
+        return
+
+    click.secho("Hash differs or tree is dirty. Generating a manifest...\n", fg="cyan")
+    generate_plan(schedule, status_dict)
 
 
 @cli.command()
@@ -76,7 +145,8 @@ def status(project_dir, profiles_dir, schedule_dir):
 @click.option("--profiles-dir", default="~/.dbt/")
 @click.option("--schedule-dir", default=None)
 @click.option("--database", default=None)
-def test(project_dir, profiles_dir, schedule_dir, database):
+@click.option("--append-commit-to-db", is_flag=True)
+def test(project_dir, profiles_dir, schedule_dir, database, append_commit_to_db):
     """Tests the current active changes."""
     schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
     # Output the status.
@@ -89,8 +159,14 @@ def test(project_dir, profiles_dir, schedule_dir, database):
         return
 
     build_db = database or schedule.project.get_default_database()
+    if append_commit_to_db:
+        # Use the first eight characters of the hash only because otherwise it gets really long.
+        build_db += "_" + current_hash[:8]
+
     file_dict = {
-        "profiles.yml": schedule.project.generate_profiles_yml(database=build_db)
+        "profiles.yml": schedule.project.generate_profiles_yml(
+            database=build_db, schema=schedule.schema_prefix
+        )
     }
 
     if not deployed_hash:
@@ -263,7 +339,8 @@ def schemawise_refresh(deploy_plan, schedule, manifest, current_hash):
         with ConfigContext(
             file_dict={
                 "profiles.yml": schedule.project.generate_profiles_yml(
-                    database=build_db
+                    database=build_db,
+                    schema=schedule.schema_prefix,
                 ),
                 "manifest.json": manifest,
             }
@@ -332,7 +409,8 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
         file_dict={
             # Use build context first
             "profiles.yml": schedule.project.generate_profiles_yml(
-                database=schedule.build_config["database"]
+                database=schedule.build_config["database"],
+                schema=schedule.schema_prefix,
             )
         }
     ) as ctx:
@@ -431,7 +509,8 @@ def database_deploy(schedule, current_hash, defer_to_state, deploy_order):
         with ctx.patch_files(
             {
                 "profiles.yml": schedule.project.generate_profiles_yml(
-                    database=schedule.deploy_config["database"]
+                    database=schedule.deploy_config["database"],
+                    schema=schedule.schema_prefix,
                 )
             }
         ):
@@ -529,10 +608,13 @@ def refresh(project_dir, profiles_dir, schedule_dir, schema):
 @click.option("--project-dir", default=".")
 @click.option("--profiles-dir", default="~/.dbt/")
 @click.option("--schedule-dir", default=None)
+@click.option("--aws-profile", default=None)
 @click.option("-f", "--force", is_flag=True, help="Force a full deploy cycle.")
-def deploy(project_dir, profiles_dir, schedule_dir, force):
+def deploy(project_dir, profiles_dir, schedule_dir, aws_profile, force):
     """Attempt to deploy the current commit as the new live version."""
-    schedule, status_dict = common_setup(project_dir, profiles_dir, schedule_dir)
+    schedule, status_dict = common_setup(
+        project_dir, profiles_dir, schedule_dir, aws_profile=aws_profile
+    )
     # Output the status.
     echo_status(status_dict, schedule.name)
     # Validate state
@@ -547,57 +629,50 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         raise click.UsageError(
             "This commit is already deployed. To refresh, " "run `dbtease refresh`."
         )
-    if deployed_hash and not force and not status_dict["deploy_order"]:
-        click.secho(
-            "This commit changes no detectable models. Verifying Manifest...",
-            fg="yellow",
-        )
-        # Fetch manifest of current live build
-        manifest = schedule.warehouse.fetch_manifest(schedule.name, deployed_hash)
-        with ConfigContext(
-            file_dict={
-                # Use deploy context
-                "profiles.yml": schedule.project.generate_profiles_yml(
-                    database=schedule.deploy_config["database"]
-                )
-            }
-        ) as ctx:
-            profile_args = ["--profiles-dir", str(ctx)]
-            # dbt deps
-            cli_run_dbt_command(["deps"])
-            # Compile to generate manifest
-            cli_run_dbt_command(["compile"] + profile_args)
-            # Stash the docs and the manifest
-            ctx.stash_files("target/manifest.json")
-            # Get manifest
-            new_manifest = ctx.read_file("manifest.json")
-            # is it the same
-            if ctx.compare_manifests(manifest, new_manifest):
-                click.secho("Manifests agree.", fg="green")
-                # Build docs and update manifest.
-                click.secho("Updating Manifest.", fg="bright_blue")
-                schedule.warehouse.deploy_manifest(
-                    project_name=schedule.name,
-                    commit_hash=current_hash,
-                    manifest=manifest,
-                    update_commit=True,
-                )
-                schedule.handle_event(
-                    "deploy_success",
-                    success=True,
-                    message="Successful Non-Project Deploy",
-                    metadata={"hash": current_hash},
-                )
-                click.secho("DONE", fg="green")
-                return
-            else:
-                # Maybe we could be smarter here, by *using* the difference in the manifest.
-                click.secho("Manifests disgaree. Forcing Full deploy.", fg="yellow")
-                force = True
 
-    if not deployed_hash or force:
+    # Test permissions
+    if schedule.filestore:
+        if not schedule.filestore.check_access():
+            raise click.UsageError(
+                "Test upload failed. Confirm you have appropriate permissions to upload to filestore."
+            )
+
+    deploy_order = []
+    trigger_full_deploy = False
+
+    if deployed_hash and not force:
+        click.secho(
+            "\nGenerating Manifest to plan deploy...",
+            fg="cyan",
+        )
+        plan, manifest = generate_plan(schedule, status_dict)
+        deploy_order = plan["deploy_order"]
+        trigger_full_deploy = plan["trigger_full_deploy"]
+
+        if not deploy_order:
+            click.secho("Manifest indicates no model changes....", fg="green")
+            # Build docs and update manifest.
+            click.secho("\nUpdating Manifest.", fg="bright_blue")
+            schedule.warehouse.deploy_manifest(
+                project_name=schedule.name,
+                commit_hash=current_hash,
+                manifest=manifest,
+                update_commit=True,
+            )
+            schedule.handle_event(
+                "deploy_success",
+                success=True,
+                message="Successful Non-Project Deploy",
+                metadata={"hash": current_hash},
+            )
+            click.secho("\nDONE", fg="green")
+            return
+
+    if not deployed_hash or force or trigger_full_deploy:
         if force:
             full_reason = "Forcing a full deploy."
+        elif trigger_full_deploy:
+            full_reason = "Full deploy triggered by a changed schema."
         else:
             full_reason = "No current deployment. This forces a full deploy."
         click.secho(
@@ -607,13 +682,13 @@ def deploy(project_dir, profiles_dir, schedule_dir, force):
         defer_to_state = False
     else:
         click.secho(
-            f"ATTEMPTING PARTIAL DEPLOY: {', '.join(status_dict['deploy_order'])}",
+            f"ATTEMPTING PARTIAL DEPLOY: {', '.join(deploy_order)}",
             fg="cyan",
         )
         defer_to_state = True
 
     # Do the deploy.
-    database_deploy(schedule, current_hash, defer_to_state, status_dict["deploy_order"])
+    database_deploy(schedule, current_hash, defer_to_state, deploy_order)
     click.secho("DONE", fg="green")
 
 

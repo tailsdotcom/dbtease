@@ -1,6 +1,5 @@
 """Routines for loading the dbt_schedule.yml file."""
 
-import os.path
 import networkx as nx
 import logging
 import click
@@ -39,6 +38,7 @@ class DbtSchedule(YamlFileObject):
         filestore=None,
         redeploy_schedule=None,
         alerter_bundle=None,
+        schema_prefix=None,
     ):
         self.name = name
         self.graph = graph
@@ -51,6 +51,7 @@ class DbtSchedule(YamlFileObject):
         self.filestore = filestore
         self.redeploy_schedule = redeploy_schedule
         self.alerter_bundle = alerter_bundle
+        self.schema_prefix = schema_prefix
 
     def handle_event(
         self, alert_event: str, success: bool, message: str, metadata=None
@@ -78,11 +79,12 @@ class DbtSchedule(YamlFileObject):
 
     def _iter_affected_schemas(self, paths):
         for _, schema in self.iter_schemas():
-            matched_paths = schema.matches_paths(paths, git_path=self.git_path)
+            matched_paths = schema.matches_paths(paths)
             if matched_paths:
                 yield schema, matched_paths
 
     def _match_changed_files(self, changed_files):
+        changed_files = set(changed_files)
         matched_files = set()
         schema_files = {}
         for schema, files in self._iter_affected_schemas(paths=changed_files):
@@ -124,13 +126,15 @@ class DbtSchedule(YamlFileObject):
         # NOTE: This is not necessarily deterministic in the case
         # that nodes have the same level in the tree, but I don't think
         # that really matters at this stage.
+        matched_schemas = changed_schemas | deploy_schemas
         return {
             "unmatched_files": unmatched_files,
             "matched_files": schema_files,
             "changed_schemas": changed_schemas,
             "dependent_deploy_schemas": deploy_schemas,
-            "deploy_order": self._determine_deploy_order(
-                changed_schemas | deploy_schemas
+            "deploy_order": self._determine_deploy_order(matched_schemas),
+            "trigger_full_deploy": any(
+                self.get_schema(sch).triggers_full_deploy for sch in matched_schemas
             ),
         }
 
@@ -161,25 +165,18 @@ class DbtSchedule(YamlFileObject):
         # Evaluate refreshes due
         refreshes_due = self.evaluate_schedules()
         # Introspect git status
-        git_status = get_git_state(deployed_hash=deployed_hash, repo_dir=self.git_path)
-        # Make a plan from the changed files
-        changed_files = git_status["diff"] | git_status["untracked"]
-        # Adjust for project dir if we need to.
-        if self.project_dir:
-            changed_files = {
-                os.path.relpath(fpath, self.project_dir)
-                for fpath in changed_files
-                if os.path.abspath(fpath).startswith(os.path.abspath(self.project_dir))
-            }
-        plan_dict = self._plan_from_changed_files(changed_files, deploy=deploy)
+        git_status = get_git_state(repo_dir=self.git_path)
         return {
             "deployed_hash": deployed_hash,
             "current_hash": git_status["commit_hash"],
             "dirty_tree": git_status["dirty"],
-            "changed_files": changed_files,
             **refreshes_due,
-            **plan_dict,
         }
+
+    def generate_plan_from_paths(self, changed_files, deploy=True):
+        """From differing paths, determine a plan."""
+        # Adjust for project dir if we need to.
+        return self._plan_from_changed_files(changed_files, deploy=deploy)
 
     @classmethod
     def from_dict(
@@ -192,6 +189,7 @@ class DbtSchedule(YamlFileObject):
         target_name=None,
         filestore=None,
         profiles_dir=None,
+        aws_profile=None,
         **kwargs,
     ):
         """Load a schedule from a dict."""
@@ -205,19 +203,20 @@ class DbtSchedule(YamlFileObject):
         if not nx.algorithms.dag.is_directed_acyclic_graph(dag):
             raise NotDagException("Not a DAG!")
 
+        # First precedence is override, then file config, then default.
+        profiles_dir = (
+            profiles_dir or kwargs.get("dbt_profiles_path", None) or "~/.dbt/"
+        )
+
         # Make sure we've got a project
         if not project:
             # Load project
-            project = DbtProject.from_path(project_dir)
+            project = DbtProject.from_path(project_dir, profiles_dir=profiles_dir)
 
         # Set up the state warehouse connection:
         if not warehouse:
             # Get the details of the target from the profiles file if not provided.
             if not target_dict:
-                # First precedence is override, then file config, then default.
-                profiles_dir = (
-                    profiles_dir or kwargs.get("dbt_profiles_path", None) or "~/.dbt/"
-                )
                 # TODO: Probably needs much more exception handling.
                 # TODO: Deal with jinja templating too.
                 profiles = DbtProfiles.from_path(
@@ -229,7 +228,9 @@ class DbtSchedule(YamlFileObject):
 
         if not filestore:
             if "docs" in config:
-                filestore = get_filestore_from_config(config["docs"])
+                filestore = get_filestore_from_config(
+                    config["docs"], aws_profile=aws_profile
+                )
 
         # Config kwargs
         schedule_kwargs = {
@@ -243,6 +244,10 @@ class DbtSchedule(YamlFileObject):
         # Use the git path if provided.
         if "git_path" in config:
             schedule_kwargs["git_path"] = config["git_path"]
+
+        # Use schema prefix if provided.
+        if "schema_prefix" in config:
+            schedule_kwargs["schema_prefix"] = config["schema_prefix"]
 
         # Add build and deploy configs if present.
         if "deploy" in config:

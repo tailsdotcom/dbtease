@@ -15,6 +15,7 @@ class DbtSchema:
         materialized=False,
         build=None,
         schemas=None,
+        triggers_full_deploy=False,
     ):
         self.name = name
         self.paths = paths
@@ -23,24 +24,19 @@ class DbtSchema:
         self.materialized = materialized
         self.build_config = build or {}
         self.schemas = schemas or [name]
+        self.triggers_full_deploy = triggers_full_deploy
         if self.materialized and not self.schedule:
             raise ValueError(f"Schema {self.name} is materialized but has no schedule!")
 
     def __repr__(self):
         return f"<DbtSchema: {self.name}>"
 
-    def matches_paths(self, paths, git_path="."):
+    def matches_paths(self, paths):
         self_paths = [os.path.realpath(path) for path in self.paths]
         matched_paths = set()
         for self_path in self_paths:
             matched_paths |= set(
-                path
-                for path in paths
-                if os.path.realpath(
-                    # Join the git path on the front.
-                    # This handles potential different git and relative paths.
-                    os.path.join(git_path, path)
-                ).startswith(self_path)
+                path for path in paths if os.path.realpath(path).startswith(self_path)
             )
         return matched_paths
 
