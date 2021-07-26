@@ -7,8 +7,11 @@ _dbt_ + _ease_ = _dbtease_
 
 ## Development Status
 
-**This tool is in very early pre-alpha status,**
-**we actively recommend that you DO NOT USE IT YET**.
+**THIS TOOL IS NO LONGER MAINTAINED**.
+**We've migrated to dbt cloud instead**.
+
+Feel free to pick over the remains for useful pieces but there are
+currently no plans to improve or maintain this tool.
 
 _You have been warned_
 
